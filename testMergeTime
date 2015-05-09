@@ -1,0 +1,37 @@
+echo "script to merge logs togather during a certain time"
+echo "what do you want to name your file"
+read "fileName"
+echo
+echo "what time range do you want to search for?"
+echo "first what is the date you want to search on? format mm/dd/yyyy"
+read "beginningDay"
+echo $beginningDay
+echo "no what is the beggining time frame you want to look at? format xx:xx:xx"
+read "beginningTime"
+echo $beginningTime
+echo 
+echo "What is the end date that you want to look at? format mm/dd/yyyy"
+read "endDay"
+echo $endDay
+echo "what is the end time that you want to look at? format xx:xx:xx"
+read "endTime"
+echo $endTime
+echo
+echo "okay we will now merge logs spa and spb spx/log/c4_cdxicx_native.log, spx/log/start_c4.log, spx/system_logs/local/EMCSystemLogFile.log,
+spx/var/log/messages, and spx/log/c4_ccsx_ktrace.log"
+echo
+echo "the logs will be merged during time frame $beginningDay $beginningTime-$endDAy $endTime"
+sleep 5
+echo
+echo "***************************************************************************************"
+echo "***************************************************************************************"
+echo "beginning to merge logs, remember you must be in the directory where you can cd to spa or spb logs so tht they can be merged"
+echo "also if the logs were not extracted using xtriiage the times on the logs can get messed up"
+echo "***************************************************************************************"
+echo "***************************************************************************************"
+echo "                               beggining merged "
+echo 
+echo
+xinvoke -x xmergelogs -o $fileName.txt -r "$beginningDay $beginningTime-$endDAy $endTime" spa/log/c4_cdxic2_native.log spa/log/c4_cdxic3_native.log 
+spb/log/c4_cdxic2_native.log spb/log/c4_cdxic3_native.log spa/log/start_c4.log spb/log/start_c4.log spb/system_logs/local/EMCSystemLogFile.log 
+spa/system_logs/local/EMCSystemLogFile.log spa/var/log/messages spb/var/log/messages spa/log/c4_ccsx_ktrace.log spb/log/c4_ccsx_ktrace.log

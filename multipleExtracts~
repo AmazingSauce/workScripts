@@ -1,0 +1,70 @@
+#!/bin/bash
+#
+
+echo "give full path of the file you want to extract"
+read "whereFileToExtract"
+cd $whereFileToExtract
+echo
+echo "What is the file name?"
+read "fileToExtract"
+echo
+echo "the file you entered is $fileToExtract:"
+echo
+#echo "Where do you want to extract the file to?"
+#read "whereToExtract"
+echo
+echo
+echo "file is being extracted"
+echo
+cd $whereFileToExtract
+mkdir extract
+mv $fileToExtract ./extract
+cd extract
+extract_dc.pl.txt $fileToExtract ./
+echo
+echo
+mv $fileToExtract $whereFileToExtract
+cd $whereFileToExtract
+mkdir Level1Triage
+mv $fileToExtract ./Level1Triage
+echo
+echo
+echo "now we will extract and run a triage:"
+cd Level1Triage
+echo
+echo
+echo "moving to " 
+pwd
+echo
+echo "decompressing"
+echo
+process_VNXe_file.pl -path ./ -decomp
+echo
+echo "running level 1 triage"
+echo
+cp /cygdrive/c/cygwin/home/anderr14/scripts/vnxe_searchterms ./
+process_VNXe_file.pl -path ./ -level 1
+echo
+echo
+rm vnxe_searchterms
+mv $fileToExtract ..
+echo "running xtriage"
+cd $whereFileToExtract
+pwd
+mkdir xtriage
+mv $fileToExtract xtriage
+cd xtriage
+echo
+xtriage
+mv $fileToExtract ..
+echo
+echo "Commands are complete"
+echo
+read
+exit
+
+
+
+
+
+

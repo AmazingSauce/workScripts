@@ -1,0 +1,36 @@
+http://linuxcommand.org/wss0030.php#html
+
+ex. 
+#!/bin/bash
+
+# make_page - A script to produce an HTML file
+
+cat <<- _EOF_
+    <HTML>
+    <HEAD>
+        <TITLE>
+        My System Information
+        </TITLE>
+    </HEAD>
+
+    <BODY>
+    <H1>My System Information</H1>
+    </BODY>
+    </HTML>
+_EOF_
+
+
+save the file and make sure to make it executable
+
+chmod 700 makepage.pl
+
+then run makepgae.pl >> htmlTest.html
+
+to open the html file created you can use
+
+cygstart.exe htmlTest.html
+
+or to open it in a specific program
+
+cygstart.exe chrome.exe htmlTest.html
+

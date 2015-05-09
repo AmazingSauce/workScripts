@@ -1,0 +1,604 @@
+#!/bin/bash
+
+# Script to a) create local AR directory, b) locate remote AR files, c) copy files locally,  d) unpack kdumps, e) locate matching vmlinux, f) run crash with common commands on dump, and e) check results for known kdump patterns.
+#usage:  ./kevildump [ AR LIST ]
+#usage:  ./kevildump 475123 475124
+# Output in crash.out.[DUMPNAME]
+# current owner: Ryan Tedrick (ryan.tedrick@emc.com)
+
+#log usage
+ulog $$ $0 $@ > /dev/null 2>&1 &
+
+umask 0  # allow everyone permission to created files and directories
+
+function vecho() {
+if [ $verbose ] ; then
+  echo $*
+fi
+}
+
+usage="Usage: ./kevildump (-d (--longSearch) (--log \"MON DD HR:MN:SC\" (--range=Bef#,Aft#)) [AR LIST] \n
+Example: ./kevildump --longSearch --log \"Jan 1 11:22:33\" --range=6,5 478123 500231 \n
+Example: ./kevildump 478123 \n
+Example: ./kevildump --log \"Jan 1 11:22:33\" 478123 500231 475124 \n
+Example: ./kevildump -d exampleDir/
+\n
+-d:\t\t\tSpecify the directory.\n
+--longSearch:\t\tDoes a longer, more time consuming search for the AR.\n
+--log:\t\t\tFollowed by a partial timestamp, gets relevant logs from 
+VNXe\*/sp(a,b)/var/log/messages and VNXe\*/sp(a,b)/log/start_c4.log.\n
+\t\t\tIt determines which VNXe\* folder to enter based on date. \n
+--extract PID:\t\tCreate a core file for PID using gcore.\n
+--extract-safe:\tCreate a safe core file using gcore.\n
+--force:\t\tOverwrite crash.out.... file.\n
+--range:\t\tUsed with --log, user can set how long before and after the provided timestamp to get log file entries.\n
+\t\t\tExample: If the timestamp is Jan 1 11:22:33 and --range=2,4 , log entries will be\n
+\t\t\tgrabbed from 11:20:33 to 11:26:33. If --range is not specified, the default is 5,1. \n
+--help:\t\tDisplay this usage information.\n\n"
+
+# Init globals
+RELAX=0
+EXTRACT=0
+EXTRACTSAFE=0
+OVERRIDE=0
+
+# Read command line Args
+nparm=0
+while [[ $1 != "" ]]
+do
+   if [[ $1 = "--log"  ]]
+   then
+      log="true"
+      shift
+      if [[ ${#1} -gt 13 ]]
+      then        
+         paramDate=$1
+         param=(`echo $paramDate | tr ':' '\n'`)
+         paramMon=${param[0]}
+         paramDay=${param[1]}
+         paramHour=${param[2]}
+         paramMin=${param[3]}
+         paramSec=${param[4]}
+
+         if [[ ${#paramDay} -eq 1 ]]
+         then
+            paramDay=" $paramDay"
+         fi
+      else
+         echo -e $usage
+         exit 1
+      fi
+      shift 2
+      if [[ ${1:0:8} = "--range="  ]]
+      then
+         range=(`echo ${1:8:${#1}} | tr ',' '\n'`)
+         prev=${range[0]}
+         after=${range[1]}
+         shift
+      else
+         prev=5
+         after=1
+      fi
+   elif [[ $1 = "--force" ]] 
+   then
+      echo "Will overwrite crash.out."
+      OVERRIDE=1
+      shift
+   elif [[ $1 = "--extract" ]] 
+   then
+      EXTRACT=1
+      shift
+      EXTRACTPID=$1
+      shift
+      echo "Will extract core for PID $EXTRACTPID from dump"
+   elif [[ $1 = "--extract-safe" ]] 
+   then
+      echo "Will extract safe core from dump"
+      EXTRACT=1
+      EXTRACTSAFE=1
+      shift
+   elif [[ $1 = "--relax" ]] 
+   then
+      RELAX=1
+      shift
+   elif [[ $1 = "--help" ]] || [[ $1 = "-help" ]] || [[ $1 = "--h" ]] || [[ $1 = "-h" ]]
+   then
+      echo -e $usage
+      exit 1
+   elif [[ $1 = "-d" ]]
+   then
+      shift
+      if [[ -d $1 ]]
+      then
+         cd $1
+	 shift
+         spefDir="true"
+         vecho "-d option specified - skipping files search. Looking in $1 instead."
+      elif [[ -d ../$1 ]]
+      then
+         cd ../$1
+	 shift
+         spefDir="true"
+         vecho "-d option specified - skipping files search. Looking in ../$1 instead."
+      else
+         echo "Directory $1 does not exist."
+         exit 1
+      fi
+   else
+      parmlist[$nparm]=$1
+      shift
+      ((nparm++))
+   fi
+done
+
+# check to see if we specified a directory, if we didnt check for other arg types
+if [[ $spefDir != "true" ]]
+then
+   # check to see that an argument was given
+   if [[ $nparm -eq 0 ]]
+   then
+      echo -e $usage
+      exit 1
+   fi
+
+   #make sure we are passed a number for the AR number
+   if ! [[ $parmlist[0] =~ ^[0-9]+$ ]]
+   then
+      echo "You have not provided a valid AR number. Please provide the AR number without trailing or leading characters."
+      exit 1
+   fi
+fi
+
+#check for gosp2 environment
+if [ RELAX == 0 ]; then
+    if [ `ls -di / | egrep -o '[0-9]{1,20}'` -eq 2 ]
+    then
+       echo This script must be run from the gosp2 environment.
+       echo "You are not in the gosp2 chroot environment. Please join it by typing 'gosp2' before continuing."
+       exit 1
+    fi
+fi
+
+# Use special version of crash, if there.
+if [ -e /c4shares/auto/devutils/bin/crash-7.0.4rc17 ] ; then
+   CRASH="/c4shares/auto/devutils/bin/crash-7.0.4rc17"
+else
+   # use the one on the path
+   CRASH="crash"
+fi
+
+#check for current version of crash
+if [[ `$CRASH -v | grep -i crash | grep -o " [0-9]\." | grep -o "[0-9]"` -lt 6 ]]
+then
+   echo "You have an outdated version of crash. Please update to version 6 or later."
+   which $CRASH
+   exit 1
+fi
+
+# look for AR materials
+for  j in `seq 0 $nparm`
+do
+   i=parmlist[$j]
+   if [[ $spefDir != "true" ]]
+   then
+
+      if [ ! -e AR$i ]
+      then
+         echo "Searching for AR materials..."
+         mkdir AR$i
+         cd AR$i
+         FOUND=0
+         for dir in /c4site/SOBO/coredumps/*$i* /c4site/SOBO/coredumps/coredumps/*$i* /c4site/SOBO/coredumps2/sobo_dumps/*$i* /c4site/SOBO/coredumps/sobo_dumps/*$i* /c4site/SOBO/coredumps2/*$i* /c4site/SOBO/coredump2/*$i* 
+         do
+            if [[ -e $dir ]] && [[ "$FOUND" = "0" ]] ; then
+               echo Copying files from $dir to `pwd`
+               cp -r $dir/* .
+               FOUND=1
+               dirToUse=$dir
+
+            elif [[ -e $dir ]] && [[ "$FOUND" = "1" ]] ; then
+               echo -n "Multiple matches for argument" /"$i/" "have been found."
+               echo "Using first match:" $dirToUse
+               echo "Other matches found: "
+               echo $dir
+               FOUND=2
+
+            elif [[ -e $dir ]] && [[ "$FOUND" = "2" ]] ; then
+               echo $dir
+            fi
+         done
+         if [ "$FOUND" == "0" ] ; then
+            dir=`/disks/USD_dumps1/bin/whereisAR.pl $i`
+            if [ $dir != "AR $i not found." ] ; then
+               echo Copying files from $dir to `pwd`
+               cp -r $dir/* .
+               FOUND=1
+               dirToUse=$dir
+            fi
+         fi
+         if [ "$FOUND" == "0" ] ; then
+            for dir in /disks/NSG_Crash_Dump/Dev/*$i* /disks/NSG_Crash_Dump_Dev/ARs/*$i* /disks/NSG_Crash_Dump_Dev/ARs/0${i:0:3}000-0${i:0:3}999/*$i*
+            do
+               if [[ -e $dir ]] && [[ "$FOUND" = "0" ]] ; then
+                  echo Copying files from $dir to `pwd`
+                  cp -r $dir/* .
+                  FOUND=1
+               fi
+            done
+         fi
+         if [ "$FOUND" == "0" ] ; then
+            for dir in /disks/NSG_Crash_Dump_Dev2/*$i* /disks/NSG_Crash_Dump_Dev2/ARs/*$i* /disks/NSG_Crash_Dump_Dev2/ARs/0${i:0:3}000-0${i:0:3}999/*$i*
+            do
+               if [[ -e $dir ]] && [[ "$FOUND" = "0" ]] ; then
+                  echo Copying files from $dir to `pwd`
+                  cp -r $dir/* .
+                  FOUND=1
+               fi
+            done
+         fi
+         if [ "$FOUND" == "0" ] ; then
+            TH=`/c4site/RTP/coredumps/find-dump $i`
+            cp -r $TH .
+         fi
+         if [[ "$FOUND" == "0" ]] && [[ $longSearch = "true" ]]
+         then
+            echo "Potential paths:"
+            find /c4site/SOBO/cor* -maxdepth 4 -wholename \*$i\* -not -wholename /c4site/SOBO/coredumps/\*$i\* -not -wholename /c4site/SOBO/coredumps/coredumps/\*$i\* -not -wholename /c4site/SOBO/coredumps2/sobo_dumps/\*$i\* -not -wholename /c4site/SOBO/coredumps/sobo_dumps/\*$i\* -not -wholename /c4site/SOBO/coredumps2/\*$i\* -not -wholename /c4site/SOBO/coredump2/\*$i\* -nowarn
+         fi
+         if [[ "$FOUND" == "0" ]]
+         then
+            echo Could not find AR materials. Exiting.
+            exit 1
+         fi
+      else
+         cd AR$i
+         echo Local AR directory already exists. Using local materials.
+      fi
+   fi
+   
+   # look for the vmcore file in the kdump directory. this is how some kitty hawk ARs keep them
+   if [ -d "./kdump" ]
+   then
+      klist=`find ./kdump/ -mindepth 0 -maxdepth 2 -name "vmcore" -type f`
+   fi
+   # doc on kdump naming under kittyhawk https://teamforge6.usd.lab.emc.com/sf/go/doc77998?nav=1
+   # look for naming outlined in doc
+   kdirlist=`find ./ -mindepth 0  -name "kdump_*" -type f -printf '%h '`
+   if [[ -n $kdirlist ]]
+   then
+      # iterate through found kdump directories
+      for kdir in $kdirlist
+      do
+	     # get the kdumps in the directory then iterate though them
+	     knameslist=`find $kdir/ -name "kdump_*" -type f`
+		 for kname in $knameslist
+		 do
+		    # if the dump is zipped unzip it and append its unzipped name to the list (possible issue with FS truncated names?)
+	            if [[ ${kname: -3} == ".gz" ]]
+		    then
+		       fname=`echo $kname | sed s/.gz//`
+		       if [ ! -f $fname ] ; then
+			   zcat $kname > $fname
+			   if [ $? != 0 ] ; then
+				echo "unzip of $kname failed - dump may be incomplete."
+				kdsize=`stat -c %s $kname`
+				if [[ $kdsize < 100000 ]] ; then 
+				   echo "kdump $kname file too small - $kdsize - exiting"
+				   exit 1;
+				else
+				   echo "continuing anyway..."
+				fi
+			   fi
+			   kname=$fname
+			else
+			   vecho File $fname already unzipped - skipping
+			   kname=""
+		        fi
+		    fi
+		    # append to klist
+	    echo . $klist| grep -q "$kname"
+            if [ $? != 0 ] ; then
+               klist="$klist $kname"
+            fi
+         done
+      done
+   fi
+   # maybe append this instead of doing it as an alternate method?
+   # if that didnt work, use the old method.
+   if [[ -z $klist ]]
+   then 
+      # this line looks for gzipped kdumps and unzips them. (preKH)
+      find . -name "kdump*gz" -exec gunzip {} \;
+      # this line looks for anything named kdump that is a file. (original used * but breaks in some KH ARs)
+      klist=`find . -name "kdump" -type f`
+      #klist=`find . -name "kdump*" -type f`
+   fi
+   # check to see if we found any kdumps
+   if [[ -z $klist ]]
+   then
+      echo Could not find any kdumps in AR materials. Exiting.
+      exit 1
+   fi
+   # iterate through the kdumps in the list.
+   for kdump in $klist
+   do
+      echo $kdump | grep -q ".tar"
+      if [ $? != 0 ]
+      then
+	     # print a pretty divider
+		 echo "********************************************************************************"
+		 echo "Running on kdump: $kdump"
+		 echo "********************************************************************************"
+         # parse the kdump to get its name so that we know what the cfile will be called
+         cfile=`echo $kdump | awk -F / '{ print $NF} '`
+         cfile=`echo crash.out.$cfile`
+         # look for the kernel_binaries.tar.gz file and get its location
+         vecho Checking for a local copy of vmlinux...
+	 localvmlin=`find . -name "vmlinux*"`
+	 if [ "$localvmlin" == "" ] ; then
+           directory=`find ./ -mindepth 0  -name "kernel_binaries.tar.gz" -type f -printf %h`
+	 else
+	   directory="."
+	 fi
+         # if we found the directory with kernel_binaries.tar.gz in it, continue with extracting vmlinux
+         if [ -d "$directory" ]
+         then
+            # did we already unzip the vmlinux file?
+	    ls $directory/'vmlinux'*'bz2' $directory/'vmlinux'*'NEO' > /dev/null 2>&1
+            if [ $? == 0 ] 
+            then
+               vecho vmlinux file is already extracted. Using that.
+            else
+               # unzip the vmlinux file from the tar and put it in the directory with kernel_binaries.tar.gz
+               vecho Unzipping files from kernel_binaries.tar.gz.
+               tar -zxf $directory/kernel_binaries.tar.gz
+               cp ./boot/* $directory/
+               rm -rf ./boot
+            fi
+            # check if the bz2 has been unzipped
+            if [ -f $directory/'vmlinux'*'NEO' ]
+            then
+               vmlin=`ls $directory | egrep -i vmlinux | grep -i -v bz2`
+               vmlin=`echo $directory/$vmlin`
+            else
+               vmlin=`ls -d $directory/* | egrep -i vmlinux | grep -i bz2`
+            fi
+         # if we don't have the binaries with the AR, use the old method
+         else
+            echo Local vmlinux not found. Getting remote vmlinux file.
+            vmlin=`echo $kdump | awk -F / '{ print $NF} ' | awk -F . ' { print $4 } ' | awk -F - ' { print $1 } '`
+            /c4shares/auto/devutils/bin/find-vmlinux $vmlin
+            vmlin=`echo /c4site/RTP/coredumps/vmlinux.$vmlin`
+         fi
+         # check that $vmlin was set, isn't just the directory, and isn't multiple files
+         if [[ -z $vmlin ]] || [[ "$vmlin" == "$directory/" ]]
+         then
+            echo Could not find vmlinux locally or remotely. Exiting.
+            exit 1
+         fi
+         
+         # check to see if we have a crash binary
+         [ -x ./usr/bin/crash ] && CRASH="$directory/usr/bin/crash"
+         
+         # check to see if we have a system map file
+         map=`find . -name "System.map*" -type f -print -quit`
+         
+         # check to see if we have a gcore file
+         gcore=`find . -name "gcore.so" -type f -print -quit`
+         
+         version=`cat /proc/version`
+         version=${version:14:6}
+         # gets the neomain version from cfile. this wont find anything for kh
+         neomain=`echo $cfile | grep -i -o "[0-5]\.[0-9]\.[0-9]"`
+         # look in the directory with kernel_binaries first, then a few other possible places for the info if we havent set it yet.
+         if [[ -z $neomain ]]
+         then
+            neomain=$directory
+            neomain=`echo $neomain | grep -i -o "[0-5]\.[0-9]\.[0-9]"`
+         elif [[ -z $neomain ]]
+         then
+            neomain=`ls . | grep safe`
+            neomain=`echo $neomain | grep -i -o "[0-5]\.[0-9]\.[0-9]"`
+         elif [[ -z $neomain ]]
+         then
+            neomain=`ls . | grep kdump_`
+            neomain=`echo $neomain | grep -i -o "[0-5]\.[0-9]\.[0-9]"`
+         fi
+         #print warning message
+         if [[ -z $neomain ]]
+         then
+            vecho "Warning: Neo version could not be determined. This may not be the proper environment for running crash on this dump."
+         elif [[ $version = "2.6.32" ]]
+         then
+            if [[ ${neomain:0:3} != "2.4" ]] && [[ ${neomain:0:3} != "3.0" ]]
+            then
+               echo "WARNING: Detected Linux Version $version. May not be the proper environment for running crash on this kdump."
+            fi
+         elif [[ $version = "2.6.27" ]] && [[ ${neomain:0:3} != "2.3" ]]
+         then
+            echo "WARNING: Detected Linux Version $version. May not be the proper environment for running crash on this kdump."
+         fi
+         echo In Dir : `pwd`
+         if [[ -e $cfile && $EXTRACT != 1 && $OVERRIDE != 1 ]]
+         then
+            echo "$cfile has already been created. crash will not rerun."
+         else
+	    # could have multiple candidate files in vmlin
+	     echo "q" > qfile
+	     for vmlinmaybe in $vmlin  
+	     do
+                 vecho "checking $CRASH -i qfile $map $kdump $vmlinmaybe"
+		 $CRASH -i qfile $map $kdump $vmlinmaybe > /dev/null 2>&1
+                 res=$?
+	         if [ $res == 0 ] ; then
+		     vmlin=$vmlinmaybe
+		     continue;
+		 fi
+	     done
+            if [ $EXTRACT == 1 ] ; then
+	       if [ $EXTRACTSAFE == 1 ] ; then 
+                 vecho "Creating safe core file"
+	         echo -e "ps csx_ic_safe\nq\n" > .x.$$
+                 $CRASH -i .x.$$ $map $kdump $vmlin >> .x1.$$
+# could be this or that or none if safe not running
+# > 23960  23959   1  ffff8800af984140  RU   0.0   38952   2332  csx_ic_safe
+# 23960  23959   1  ffff8800af984140  RU   0.0   38952   2332  csx_ic_safe
+	         x=`fgrep csx_ic_safe .x1.$$ | grep -v crash | tail -1 | awk ' { if ($NF ~ /csx_ic_safe/) { if ($1 ~ /[0-9]/) print $1; else print $2 }} '`
+	         if [ "$x" == "" ] ; then
+		    echo "Could not locate SAFE ic in kdump.  Look at .x1.$$ for info."
+		    exit 1
+	         fi
+	       else 
+		 x=$EXTRACTPID
+		 vecho "Creating PID $x core file"
+	       fi
+               [ $gcore ] || gcore="/c4shares/auto/devutils/bin/crashex/gcore.so" 
+               vecho "Calling extend ${gcore}\ngcore $x\nq"
+	       echo -e "extend ${gcore}\ngcore $x\nq\n" > .y.$$
+               $CRASH -i .y.$$ $map $kdump $vmlin >> .y1.$$
+	       if [ -e core.$x.* ] ; then 
+		 FN=`ls core.$x.*`
+		 echo "Success. $FN created."
+		 rm -f .x.$$ .x1.$$ .y.$$ .y1.$$ > /dev/null 2>&1
+		 exit 0
+	       else
+		 echo "Core not created.  Look at .y1.$$ for info."
+	         exit 1	
+	       fi
+	    else
+               echo Outfile: $cfile
+               vecho "Creating temp file ./crash.cmds."
+               echo -e "bt -a\nrunq\nlog\nps -l\nps\nkmem -V\nkmem -i\nkmem -s\nforeach bt\nmod\nps -a\nq\n" > ./crash.cmds
+               echo Command: $CRASH '-i' ./crash.cmds $map $kdump $vmlin
+               $CRASH -i ./crash.cmds $map $kdump $vmlin >> $cfile
+               vecho "Removing temp file ./crash.cmds."
+               rm ./crash.cmds
+            fi
+         fi
+         echo Performing some common checks
+         /c4shares/auto/devutils/bin/kdumpcheck/kdump-check2 $cfile
+
+         if [[ $log = "true" ]]
+         then
+
+            startlen=`echo $cfile | grep -o '\<crash.out.kdump.*2012.*201'`
+            kdate=${kdump:$startlen-3:19}
+            sp=`grep NODENAME: $cfile`
+            sp=${sp:14:3}
+            crashDate=`grep DATE: $cfile`
+            crashDate=${crashDate:18:15}
+            crashHour=${crashDate:7:2}
+            crashMin=${crashDate:10:2}
+            crashSec=${crashDate:13:2}
+            #Select the correct VNXe* folder/tar file
+            eles=`ls -d VNXe* 2>/dev/null`
+            eles=(`echo $eles | tr ' ' '\n'`)
+            if [[ ${#eles[@]} -gt 1 ]]
+            then
+               eles=`ls -d VNXe*${kdate:0:11}* 2>/dev/null`
+               eles=(`echo $eles | tr ' ' '\n'`)
+               if [[ ${#eles[@]} -gt 1 ]]
+               then
+                  khour=${kdate:11:2}
+                  kmin=${kdate:14:2}
+                  j=0
+                  while [[ $j -lt ${#eles[@]} ]]
+                  do
+                     startlen=`echo ${eles[$j]} | grep -o '\<VNXe.*201'`
+                     startlen=${#startlen}
+                     vnxeDate=${eles[$j]:$startlen-3:19}
+                     vnxeHour=${vnxeDate:11:2}
+                     vnxeMin=${vnxeDate:14:2}
+
+                     if [[ $vnxeHour -eq $khour && $vnxeMin -gt $kmin ]] || [[ $vnxeHour -gt $khour ]]
+                     then
+                        vnxe=${eles[$j]}
+                        break
+                     fi
+                     j=$((j + 1))
+                  done
+               else
+                  vnxe=${eles[0]}
+               fi
+            else
+               vnxe=${eles[0]}
+            fi
+
+            if [[ ${#vnxe} -eq 0 ]]
+            then
+               echo "Cannot locate VNXe* folder. Exiting."
+               exit
+            fi
+
+            cd $vnxe 2>/dev/null
+            ret=$?
+            if [[ $ret != "0" ]]
+            then
+               tar -zxf $vnxe 2>/dev/null
+               tar -xf $vnxe 2>/dev/null
+               vnxe="${vnxe:0:${#vnxe}-8}*"
+               cd $vnxe
+            fi
+
+            cd $sp 2>/dev/null
+            ret=$?
+            if [[ $ret != "0" ]]
+            then
+               tar -zxf spa* 2>/dev/null
+               tar -zxf spb* 2>/dev/null
+               else
+               cd ..
+            fi
+
+            if [[ $paramMin -gt $((prev - 1)) ]]
+            then
+               startHour=$paramHour
+               startMin=$((paramMin - prev))
+               startSec=$paramSec
+            else
+               startHour=$((paramHour - 1))
+               startMin=$((prev - paramMin))
+               startMin=$((60 - paramMin))
+               startSec=$paramSec
+            fi
+
+            echo "Getting log information $prev minutes prior to crash and $after minutes after crash."
+            echo "Outfiles: spa.messages, spa.start_c4.log, spb.messages, and spb.start_c4.log"
+
+            dateString="$paramMon $paramDay"
+            k=0
+            timme=$((prev + after))
+            timme=$((timme * 60))
+
+            echo "" > ../spa.messages
+            echo "" > ../spa.start_c4.log
+            echo "" > ../spb.messages
+            echo "" > ../spb.start_c4.log
+
+            while [[ k -lt $timme ]]
+            do
+               searchString="$dateString $startHour:$startMin:$startSec"
+               strings spa/var/log/messages 2>/dev/null | grep -s "$searchString" >> ../spa.messages 
+               strings spa/log/start_c4.log 2>/dev/null | grep -s "$searchString" >> ../spa.start_c4.log 
+               strings spb/var/log/messages 2>/dev/null | grep -s "$searchString" >> ../spb.messages 
+               strings spb/log/start_c4.log 2>/dev/null | grep -s "$searchString" >> ../spb.start_c4.log 
+
+               startSec=$((startSec + 1))
+               if [[ $startSec -gt 59 ]]
+               then
+                  startSec=0
+                  startMin=$((startMin + 1))
+               fi
+               if [[ $startMin -gt 59 ]]
+               then
+                  startMin=0
+                  startHour=$((startHour + 1))
+               fi
+               k=$((k + 1))
+            done
+         fi 
+      fi
+   done
+done
+echo "Done - exiting"
+exit 0

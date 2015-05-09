@@ -1,0 +1,38 @@
+#!/bin/bash
+
+
+
+echo "The script starts now."
+echo
+echo "What is your name?"
+read name
+echo "Hi, $name!"
+echo
+
+echo "This will change the directory and print out what directory we are in"
+echo "However becuase bash runs in its own shell it will go back to your original directory when the script is compelte"
+echo
+cd /cygdrive/c/cygwin64/home/anderr14/
+pwd
+echo
+
+#echo "I am going to run a this script inside of this script, will it cause a loop?"
+#echo
+#cd /cygdrive/c/cygwin/home/anderr14/scripts/
+#./testScript
+
+# Yes it did cause a loop :)
+echo
+echo
+
+echo "i'm setting 2 variables now."
+COLOUR="black"
+VALUE="9"
+echo
+echo "This is a string: $COLOUR"
+echo "And this is a number: $VALUE"
+echo
+
+echo "I am giving you back your prompt now."
+echo
+

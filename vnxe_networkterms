@@ -1,0 +1,125 @@
+# Add your terms in the format below
+# filename, searchterm, level
+# filenames of mylog are searched as mylog* so you will see entries in :mylog.1, mylog.2 etc
+# Search level defaults to 1 and is changed by -level <#>
+#
+start_c4.log, "IoError", 1
+start_c4.log, "Timed out", 1
+start_c4.log, "Rebooting peer", 1
+start_c4.log, "Scheduling Node", 1
+start_c4.log, "ERROR: failed to", 1
+start_c4.log, "failed to initialize", 1
+start_c4.log, "c4_shutdown.sh: called", 1
+start_c4.log, "CDX2 action", 2
+start_c4.log, "CDX3 action", 2
+start_c4.log, "call failed", 2
+start_c4.log, "Failed to ping server", 2
+start_c4.log, "phase I/II/CIC initialize complete", 2
+start_c4.log, "Upstart: c4-boot: pre-start completed", 3
+c4_cdxic2_native.log, "SHUTDOWN", 1
+c4_cdxic3_native.log, "SHUTDOWN", 1
+c4_cdxic2_native.log, "panic requested", 1
+c4_cdxic3_native.log, "panic requested", 1
+c4_cdxic2_native.log, "Get Reason IoError", 1
+c4_cdxic3_native.log, "Get Reason IoError", 1
+c4_cdxic2_native.log, "I/O not progressing", 1
+c4_cdxic3_native.log, "I/O not progressing", 1
+# 
+c4_cdxic2_native.log, "fsn", 2
+c4_cdxic3_native.log, "fsn", 2
+# These indicate a failure to setup an NDMP backup
+c4_cdxic2_native.log, "connect error", 2
+c4_cdxic3_native.log, "connect error", 2
+# Server can not connect
+c4_cdxic2_native.log, "connection refused", 2
+c4_cdxic3_native.log, "connection refused", 2
+# Iscsi hosts connecting
+c4_cdxic2_native.log, "Accepted a connection", 2
+c4_cdxic3_native.log, "Accepted a connection", 2
+# These are from Darts, indicate which network they are using (vnic0 maps to local eth ports vnic0-b maps to peer)
+c4_cdxic2_native.log, "vnic", 3
+c4_cdxic3_native.log, "vnic", 3
+# Doesn't indicate anything, used as a confirmation of time
+c4_cdxic2_native.log, "clock", 3
+c4_cdxic3_native.log, "clock", 3
+# Not sure what these are, causes host io errors
+c4_cdxic2_native.log, "Run out", 3
+c4_cdxic3_native.log, "Run out", 3
+# Darts can't talk out 
+c4_cdxic2_native.log, "bad gateway", 3
+c4_cdxic3_native.log, "bad gateway", 3
+# UFS thread issue
+c4_cdxic2_native.log, "SYNC WATCHDOG", 3
+c4_cdxic3_native.log, "SYNC WATCHDOG", 3
+# These indicate the an error or end to an NDMP backup
+c4_cdxic2_native.log, "CONNECT_CLOSE", 3
+c4_cdxic3_native.log, "CONNECT_CLOSE", 3
+# Flare not processing IOs
+c4_cdxic2_native.log, "check_timeout", 4
+c4_cdxic3_native.log, "check_timeout", 4
+# Iscsi connections UP/DOWN
+c4_cdxic2_native.log, "Accepted a connection", 4
+c4_cdxic3_native.log, "Accepted a connection", 4
+c4_cdxic2_native.log, "Logout Close Session", 4
+c4_cdxic3_native.log, "Logout Close Session", 4
+# These are seen as dart processes it's config file
+c4_cdxic2_native.log, "sendCmd failed", 5
+c4_cdxic3_native.log, "sendCmd failed", 5
+c4_ccsx_native.log, "panic requested", 1
+# Seen in ktrace when a drive is removed or added
+c4_ccsx_ktrace.log, "physically", 1
+c4_ccsx_ktrace.log, "ASCQ", 2
+messages, "DUMP", 1
+messages, "FAILED", 1
+messages, "segfault", 1
+messages, "exception", 1
+messages, "syslog-ng s", 1
+messages, "Updating failcount for", 1
+messages, "terminated with status 1", 2
+messages, "timed out", 2
+# Pacemaker policy transition to shutdown resources
+messages, "Forcing", 2
+messages, "rsc:", 4
+messages, "nas_fs", 3
+# Copper up/Down
+messages, "LINK IS", 3
+messages, "Link is", 3
+messages, "step time server", 3
+EMCSystemLogFile.log, "NMI", 1
+# Malformed TLP causes reboots
+EMCSystemLogFile.log, "TLP", 1
+EMCSystemLogFile.log, "major failures", 1
+EMCSystemLogFile.log, "connection down", 1
+EMCSystemLogFile.log, "DMI", 3
+EMCSystemLogFile.log, "Fault", 1
+EMCSystemLogFile.log, "CRIT", 5 
+EMCSystemLogFile.log, "ERROR", 5 
+cemtracer_nas_services.log, "fsn", 4
+# VMWare error
+cemtracer_server_provider.log, "Connect failed", 1
+# VMWare error
+cemtracer_server_provider.log, "An error occurred", 1
+cemtracer_health_services.log, "link ", 3
+cemtracer.log, "join failed", 1
+cemtracer.log, "No new disk", 1
+cemtracer.log, "error acquiring", 1
+cemtracer.log, "unknown exception", 1
+cemtracer.log, "unexpected exception", 1
+cemtracer.log, "to delete", 2
+cemtracer.log, "create LUN", 2
+cemtracer.log, "Logout request", 2
+cemtracer.log, "SharedFolder Delete", 2
+cemtracer.log, "BAMIndication", 3
+cemtracer.log, "BAM NEW operation", 5 
+cmd_log, "nas", 4
+cmd_log, "server", 4
+cmd_log, "server_ifconfig", 4
+nas_log.al.err, "volume", 1
+# This is a failed filesystem extension
+nas_log.al.err, "extension failed", 1
+# This indicates the inability to talk to the CIFS domain server, and thus the clients can't connect
+nas_log.al.err, "Connection timeout", 1
+nas_log.al.err, "delete", 3
+nas_log.al.err, "create", 3
+# Can't use ecom, no timestamp
+#ecom_output, "Failed", 1

@@ -1,0 +1,829 @@
+***created by Robert Willis Anderson 08/20/2014
+*** last edited on 10/15/2014
+*** incorporated editing the list of ids to only delete the ones wanted  for iscsi and shares
+***any suggestions or question you can contact Robert.W.Anderson@emc.com
+
+
+
+
+#!/bin/bash
+echo "*******************************************"
+echo "*******************************************"
+echo "*******************************************"
+echo "this script allows you to delete iscsi snaps and shared folder snapshots"
+echo "*******************************************"
+echo "*******************************************"
+echo "*******************************************"
+echo
+echo
+echo
+echo "enter 1 for iscsi snapshots"
+echo "enter 2 to delete shared folder snapshots"
+echo "enter 3 for replication snapshots"
+echo
+echo
+read "snapsToDelete"
+echo "you chose $snapsToDelete"
+
+
+
+
+
+
+if [ "$snapsToDelete" == "1" ];
+then
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "       Begin code to delete iscsi snapshot"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo
+echo "do you want to delete all snapshots or specific ones from an ISCSi LUN?"
+sleep 2
+echo
+echo "press 1 to delete one snapshot"
+echo "press 2 to delete all snapshots"
+echo "press 3 to select which snapshots to delete"
+read howManySnapshots
+echo
+
+
+
+
+
+
+if [ "$howManySnapshots" == "1" ];
+then
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "      begin code to delete 1 iscsi snapshot"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo
+echo
+echo we are going to delete 1 snapshot
+echo
+echo
+echo
+echo "Here is a list of LUNs from both storage processors by running  server_iscsi ALL -l -i -all"
+##would like to find a command to list the server, lun, Target name, dart file system name, and GUI name and even type generic iscs, vmfs etc.
+sleep 5
+server_iscsi ALL -l -i -all
+
+
+echo "What LUN do you want to look at?"
+read "lunNumber"
+sleep 2
+echo "What server is the system on 2 or 3?"
+read "whatServerNumber"
+sleep 2
+server="server_$whatServerNumber"
+echo $server
+sleep 2
+
+echo  "The LUN number we are looking at is $lunNumber on $server"
+sleep 2
+
+echo "listing the info for $lunNumber with command server_iscsi $server -l -i $lunNumber"
+sleep 5
+server_iscsi $server -l -i $lunNumber
+sleep 2
+
+
+echo
+sleep 2
+echo "now listing the PluNbsId on $server with command nbs-snap -a listPLU -s $server"
+echo
+sleep 2
+nbs-snap -a listPLU -s $server
+echo
+sleep 2
+
+echo "What file system or PluNbsid do you want?"
+echo "To find the PluNbsid look for the same fs listed from the command server_iscsi $server -l -i $lunNumber"
+read "PluNbsid"
+
+sleep 2
+
+echo
+echo "listing snapshots of that file system with command nbs-snap -a listsnap -i $PluNbsid  -s $server"
+sleep 5
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+sleep 2
+echo "listing how many snapshots are on that system"
+nbs-snap -a listsnap -i $PluNbsid  -s $server | wc -l
+sleep 2
+echo
+echo
+echo "what snapshot do you want to delete?"
+read snapShotToDelete
+echo
+echo
+echo "Now going through and removing snapshot $snapShotToDelete of $PluNbsid"
+echo "from LUN $lunNumber on server_$whatServerNumber"
+sleep 2
+echo "using command nbs-snap -a delete -i $PluNbsid -n $snapShotToDelete -s $server"
+sleep 5
+echo
+nbs-snap -a delete -i $PluNbsid -n $snapShotToDelete -s $server
+echo
+echo "Snapshot $snapShotToDelete has been deleted"
+echo
+echo "you can run the below command to see if snapshots have been cleared up"
+echo "running nbs-snap -a listsnap -i $PluNbsid  -s $server"
+echo
+sleep 2
+echo "listing snapshots with nbs-snap -a listsnap -i $PluNbsid  -s $server"
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+
+fi
+
+
+
+if [ "$howManySnapshots" == "2" ];
+then
+echo "You would like to delete all snapshots"
+
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "Begin code to delete all iscsi snapshots"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+
+
+
+echo
+echo
+echo "Here is a list of LUNs from both storage processors by running  server_iscsi ALL -l -i -all"
+##would like to find a command to list the server, lun, Target name, dart file system name, and GUI name and even type generic iscs, vmfs etc.
+sleep 5
+server_iscsi ALL -l -i -all
+echo
+echo
+echo "What LUN do you want to look at?"
+read "lunNumber"
+sleep 2
+echo "What server is the system on 2 or 3?"
+read "whatServerNumber"
+echo 
+sleep 2
+server="server_$whatServerNumber"
+echo $server
+sleep 2
+echo
+echo  "The LUN number we are looking at is $lunNumber on $server"
+sleep 2
+
+echo "listing the info for $lunNumber"
+server_iscsi $server -l -i $lunNumber
+sleep 2
+
+echo "To find the PluNbsid look for the same fs listed from the above command"
+echo
+echo "now listing the PluNbsId on $server"
+echo
+nbs-snap -a listPLU -s $server
+echo
+sleep 2
+
+echo "What file system or PluNbsid do you want?"
+read "PluNbsid"
+
+sleep 2
+
+
+echo "listing snapshots of that file system"
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+sleep 2
+echo "listing how many snapshots are on that system"
+nbs-snap -a listsnap -i $PluNbsid  -s $server | wc -l
+sleep 2
+echo
+echo
+echo
+echo "Now going through and removing all snapshots of $PluNbsid"
+echo
+sleep 2
+echo "You may see an error for the command but it will still go through and delete all the snapshots, depending on how many snapshots it can take a very long time depending on how many snapshots there are"
+echo
+sleep 5
+
+for i in `nbs-snap  -a listSnap -i $PluNbsid  -s server_3`;
+do nbs-snap -a delete -i  $PluNbsid   -n $i -s server_3 ;
+done
+
+echo "Listing snapshots"
+echo
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+
+sleep 2
+echo
+echo "you can run the below command to see if snapshots have been cleared up"
+echo nbs-snap -a listsnap -i $PluNbsid  -s $server
+
+
+fi
+
+
+
+
+if [ "$howManySnapshots" == "3" ];
+then
+
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "Begin code to delete specific iscsi snapshots"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo
+echo
+echo "We will list out all the snapshots for the file system so you can edit the ones you do not want to be deleted"
+echo "first lets get the information for the LUN and snapshot"
+echo
+sleep 2
+echo
+echo
+echo
+echo "Here is a list of LUNs from both storage processors by running  server_iscsi ALL -l -i -all"
+##would like to find a command to list the server, lun, Target name, dart file system name, and GUI name and even type generic iscs, vmfs etc.
+sleep 5
+server_iscsi ALL -l -i -all
+echo
+echo
+echo "What LUN do you want to look at, enter LUN number?"
+read "lunNumber"
+sleep 2
+echo "What server is the system on 2 or 3?"
+read "whatServerNumber"
+echo 
+sleep 2
+server="server_$whatServerNumber"
+echo $server
+sleep 2
+echo
+echo  "The LUN number we are looking at is $lunNumber on $server"
+sleep 2
+
+echo "listing the info for $lunNumber"
+server_iscsi $server -l -i $lunNumber
+sleep 2
+
+echo "To find the PluNbsid look for the same fs listed from the above command"
+echo
+echo "now listing the PluNbsId on $server"
+echo
+nbs-snap -a listPLU -s $server
+echo
+sleep 2
+
+echo "What file system or PluNbsid do you want?"
+read "PluNbsid"
+
+sleep 2
+
+
+echo "listing snapshots of that file system"
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+sleep 2
+echo "listing how many snapshots are on that system"
+nbs-snap -a listsnap -i $PluNbsid  -s $server | wc -l
+sleep 2
+echo
+echo
+echo
+echo "now creating file of the snapshot ids of $PluNbsid"
+echo "delete the ids that you do not want to delete and save the file, it is running in vi so press esc and type :wq! and hit enter"
+
+sleep 5
+
+nbs-snap  -a listSnap -i $PluNbsid  -s server_3| cut -d " " -f 1  > ckpt_list
+
+vi ckpt_list
+echo
+echo
+echo
+echo "okay we have your edited file saved as ckpt_list in your current directory"
+echo
+echo
+echo "do you want to continue to delete the snapshots from the edited file?"
+echo "yes or no?"
+read continueDelete
+echo
+
+
+
+if [ "$continueDelete" == "yes" ];
+then
+sleep 2
+echo "You may see an error for the command but it will still go through and delete all the snapshots, depending on how many snapshots it can take a very long time depending on how many snapshots there are"
+echo
+sleep 5
+
+for i in `ckpt_list`;
+do nbs-snap -a delete -i  $PluNbsid   -n $i -s server_3 ;
+done
+
+echo "Listing snapshots"
+echo
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+
+sleep 2
+echo
+echo "you can run the below command to see if snapshots have been cleared up"
+echo nbs-snap -a listsnap -i $PluNbsid  -s $server
+
+fi
+
+
+
+
+
+fi
+
+fi
+
+
+
+
+
+if [ "$snapsToDelete" == "2" ];
+then
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "Begin code to delete shared folder snapshots"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo
+echo "What is the file system name you want to remove snapshots from?"
+echo "listing file systems with command svc_storagecheck --fs_id"
+sleep 5
+svc_storagecheck --fs_id
+echo
+echo "enter file system name"
+read "fsName"
+echo "file system name is $fsName"
+sleep 2
+echo
+echo 
+echo
+echo "do you want to delete 1 snapshot, all snapshots, or just specific ones for share $fsName"
+echo "press 1 to delete one snapshot"
+echo "press 2 to delete all snapshots"
+echo "press 3 to select which snapshots to delete"
+read howManyShareSnaps
+echo
+echo "you have chosen $howManyShareSnaps"
+echo
+echo
+
+
+if [ "$howManyShareSnaps" == "1" ];
+then
+
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "begin script to delete 1 share snapshot"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo 
+echo
+echo "listing snapshots on $fsName with command fs_ckpt $fsName -l -a "
+sleep 5
+echo "********************************************************************"
+echo "********************************************************************"
+echo "********************************************************************"
+fs_ckpt $fsName -l -a 
+echo
+echo "Please provide the ID of the snapshot you would like to delete"
+read snapShotId
+echo
+echo "snapshot id is $snapShotId"
+echo "info about snapshot ID $snapShotId with command nas_fs -i id=$snapShotId"
+sleep 5
+nas_fs -i id=$snapShotId
+echo 
+sleep 5
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+echo "deleting snapshot id#$snapShotId"
+echo
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+echo " running command nas_fs -d id=$snapShotId -o umount=yes to delete snapshot"
+sleep 5
+nas_fs -d id=$snapShotId -o umount=yes
+echo
+echo "*************************************"
+echo "snapshot has now been removed"
+echo "*************************************"
+sleep 2
+echo
+echo "you can see if there are any other snapshots by running fs_ckpt $fsName -l -a"
+sleep 2
+echo 
+echo "listing remaining snapshots with command fs_ckpt $fsName -l -a"
+fs_ckpt $fsName -l -a
+echo
+echo "*******************************************************" 
+echo "*******************************************************"
+echo "*******************************************************"
+echo "*******************************************************"
+
+fi
+
+
+
+
+
+
+
+
+if [ "$howManyShareSnaps" == "2" ];
+then
+
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "begin script to delete all share snaps"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo 
+echo
+echo 
+echo 
+echo "this will remove all snapshots from the file system provided"
+echo
+echo "file system name is $fsName"
+sleep 5
+echo "********************************************"
+echo "********************************************"
+echo "********************************************"
+echo "********************************************"
+echo
+echo "listing snapshots on this file system with command fs_ckpt $fsName -l -a "
+sleep 5
+echo "********************************************************************"
+fs_ckpt $fsName -l -a 
+echo 
+echo
+echo "getting a list of ids for the snapshots, to list checkpoints and information you can run fs_ckpt $fsName -l -a"
+sleep 5
+echo
+echo
+fs_ckpt $fsName -l -a | cut -d " " -f 1
+echo
+echo
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+echo "deleting All snapshots for file system $fsName"
+echo
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+
+##command to list ids of the snapshots on that file system and puts it in the file called listOfSnaps
+##fs_ckpt $fsName -l -a | cut -d " " -f 1 >> listOfSnaps
+##or
+##fs_ckpt SnapTest -l -a | awk '{print $1}' | \
+##hile read CMD; do
+##        echo $CMD
+##done
+
+
+##or
+for i in `fs_ckpt $fsName -l -a | cut -d " " -f 1`;
+do nas_fs -d id=$i -o umount=yes; done
+
+
+echo
+echo "all snapshots have now been removed"
+sleep 2
+echo
+echo "you can see if there are any other snapshots by running fs_ckpt $fsName -l -a"
+echo 
+echo "checking for other snapshots"
+fs_ckpt $fsName -l -a
+echo
+echo "*******************************************************" 
+echo "*******************************************************"
+echo "*******************************************************"
+echo "*******************************************************"
+
+fi
+
+
+
+fi
+
+
+
+
+
+
+
+if [ "$howManyShareSnaps" == "3" ];
+then
+
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "Begin script to delete selected share snaps"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo 
+echo
+echo "this will remove all snapshots from a list you will edit and remove them from the file system provided"
+echo
+echo
+echo "file system name is $fsName"
+sleep 2
+echo
+echo "listing snapshots on this file system using command fs_ckpt $fsName -l -a "
+echo "********************************************************************"
+sleep 5
+fs_ckpt $fsName -l -a 
+echo 
+echo
+echo "getting a list of ids for the snapshots and placing them in ckpt_list in current directory"
+sleep 2
+echo
+echo
+fs_ckpt $fsName -l -a | cut -d " " -f 1  > ckpt_list
+
+echo "now editing file ckpt_list with vi, when done press esc and type :wq! and hit enter ot exti"
+sleep 5
+vi ckpt_list
+
+echo "okay we have your edited file saved as ckpt_list in your current directory"
+echo "do you want to continue to delete the snapshots from the edited file?"
+echo "yes or no?"
+read continueDelete
+echo
+
+
+
+if [ "$continueDelete" == "yes" ];
+then
+sleep 2
+
+echo
+echo
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+echo "deleting All snapshots from ckpt_list file for file system $fsName"
+echo
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+
+
+for i in `cat ckpt_list`;
+do nas_fs -d id=$i -o umount=yes; done
+
+
+
+echo
+echo "all snapshots from file ckpt_list have now been removed"
+sleep 2
+echo
+echo "you can see if there are any other snapshots by running fs_ckpt $fsName -l -a"
+echo 
+echo "checking for other snapshots with command fs_ckpt $fsName -l -a"
+sleep 3
+fs_ckpt $fsName -l -a
+echo
+echo "*******************************************************" 
+echo "*******************************************************"
+echo "*******************************************************"
+echo "*******************************************************"
+
+fi
+
+if [ "$continueDelete" == "no" ];
+then
+echo "you have chose to exit"
+
+fi
+
+
+
+fi
+
+
+
+
+
+
+
+
+
+echo
+echo 
+if [ "$snapsToDelete" == "3" ];
+then
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "begin code to delete replication snapshot"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo
+echo
+echo "you have chosen to delete replication snapshot"
+echo 
+echo "is the replication running on iscsi or share?"
+echo " enter 1 for iscsi enter 2 for share"
+read "repIscsiOrShare"
+echo
+echo "you entered $repIscsiOrShare"
+
+
+
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "Begin code to delete iscsi replication snapshot"
+
+
+if [ "$repIscsiOrShare" == "1" ];
+then
+
+echo "we are going to delete 1 iscsi replication snapshot"
+echo
+echo "listing all LUNs on system with command server_iscsi server_2 -l -i -all
+sleep 5
+server_iscsi server_2 -l -i -all
+echo 
+echo
+echo "What LUN do you want to look at, enter LUN number?"
+read "lunNumber"
+sleep 2
+echo "What server is the system on 2 or 3?"
+read "whatServerNumber"
+sleep 2
+server="server_$whatServerNumber"
+echo $server
+sleep 2
+
+echo  "The LUN number we are looking at is $lunNumber on $server"
+sleep 2
+
+echo "listing the info for $lunNumber using command server_iscsi server_3 -l -i $lunNumber"
+sleep 5
+server_iscsi server_3 -l -i $lunNumber
+sleep 2
+
+echo "To find the PluNbsid look for the same fs listed from the above command"
+echo
+sleep 2
+echo
+echo "now listing the PluNbsId on $server"
+echo
+nbs-snap -a listPLU -s $server
+echo
+sleep 2
+
+echo "What file system or PluNbsid do you want?"
+read "PluNbsid"
+
+sleep 2
+
+echo
+echo "listing snapshots of that file system, replication snapshots usually start with root"
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+sleep 2
+echo "listing how many snapshots are on that system"
+nbs-snap -a listsnap -i $PluNbsid  -s $server | wc -l
+sleep 2
+echo
+echo
+echo "what snapshot do you want to delete?"
+read snapShotToDelete
+echo
+echo
+echo "Now going through and removing snapshot $snapShotToDelete of $PluNbsid"
+echo "from LUN $lunNumber on server_$whatServerNumber"
+echo "usig command /nas/sbin/rootnas_fs -d $snapShotToDelete -o umount=yes -ALLOW_REP_INT_CKPT_OP"
+sleep 5
+
+/nas/sbin/rootnas_fs -d $snapShotToDelete -o umount=yes -ALLOW_REP_INT_CKPT_OP
+
+echo
+echo "Snapshot $snapShotToDelete has been deleted"
+echo
+echo "you can run the below command to see if snapshots have been cleared up"
+echo "running nbs-snap -a listsnap -i $PluNbsid  -s $server"
+echo
+nbs-snap -a listsnap -i $PluNbsid  -s $server
+
+fi
+
+
+fi
+
+
+
+
+if [ "$repIscsiOrShare" == "2" ];
+then
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "Begin code to delete share replication snapshot"
+echo "**************************************************************"
+echo "**************************************************************"
+echo "**************************************************************"
+echo 
+echo
+echo "What is the file system name you want to remove snapshots from?"
+echo "listing file systems with command svc_storagecheck --fs_id
+sleep 5
+svc_storagecheck --fs_id
+echo
+echo "**************************************************************"
+echo
+echo "enter file system name"
+read "fsName"
+echo "file system name is $fsName"
+sleep 2
+echo
+echo 
+echo
+echo
+echo
+
+echo "listing snapshots on this file system with command fs_ckpt $fsName -l -a "
+echo "********************************************************************"
+echo "********************************************************************"
+echo "********************************************************************"
+fs_ckpt $fsName -l -a 
+echo "********************************************************************"
+echo
+echo "Please provide the ID of the replication snapshot you would like to delete, usually starts with rootxxx"
+read snapShotId
+echo
+echo "snapshot id is $snapShotId"
+echo "to list information about snapshot run nas_fs -i id=$snapShotId"
+echo "running nas_fs -i id=$snapShotId"
+sleep 5
+nas_fs -i id=$snapShotId
+echo 
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+echo "deleting replication snapshot id#$snapShotId with command /nas/sbin/rootnas_fs -d id=#$snapShotId -o umount=yes -ALLOW_REP_INT_CKPT_OP"
+sleep 5
+echo
+echo "*************************************"
+echo "*************************************"
+echo "*************************************"
+echo
+/nas/sbin/rootnas_fs -d id=#$snapShotId -o umount=yes -ALLOW_REP_INT_CKPT_OP
+echo
+echo "snapshot has now been removed"
+sleep 2
+echo
+echo "listing snapshots for $fsName with command fs_ckpt $fsName -l -a "
+sleep 5
+fs_ckpt $fsName -l -a 
+
+
+echo "*******************************************************" 
+echo "*******************************************************"
+echo "*******************************************************"
+echo "*******************************************************"
+
+
+fi
+
+

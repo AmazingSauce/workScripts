@@ -1,0 +1,123 @@
+#!/bin/bash
+#
+
+#script to run multiple scripts for extracting files
+# firs tscriptis extract_dc.pl.txt which is a script that when logs are untared are saved as human readable form and saved in folder exract 
+
+
+
+
+echo "give full path of the file you want to extract"
+read "whereFileToExtract"
+cd $whereFileToExtract
+echo
+echo "What is the file name?"
+read "fileToExtract"
+echo
+echo "the file you entered is $fileToExtract:"
+echo
+#echo "Where do you want to extract the file to?"
+#read "whereToExtract"
+echo
+echo
+echo "file is being extracted"
+echo
+cd $whereFileToExtract
+mkdir extract
+mv $fileToExtract ./extract
+cd extract
+extract_dc.pl.txt $fileToExtract ./
+echo
+echo
+mv $fileToExtract $whereFileToExtract
+cd $whereFileToExtract
+echo
+echo
+echo "now we will extract and run a triage with the level 1, 2, and 3 searchterms:"
+echo "running ngtriage"
+cd $whereFileToExtract
+pwd
+mkdir triage
+mv $fileToExtract triage
+cd triage
+echo 
+triage.exe -f
+echo 
+echo
+echo "triage complete, now merging dart logs"
+echo
+
+mergelogs -o TRiiAGE_Dartlogs.txt -z spa/log/c4_cdxic2_native.log* spb/log/c4_cdxic2_native.log* spa/log/c4_cdxic3_native.log* spb/log/c4_cdxic3_native.log* spb/log/c4_cdxic2_native.log*
+
+
+echo "merged logs for spA and spB "
+echo 
+
+echo "mergin safe_ktrace logs for kittyhawk"
+
+mergelogs -o TRiiAGE_Safe_Ktrace.txt -z spa/EMC/C4Core/log/c4_safe_ktrace.log*
+spb/EMC/C4Core/log/c4_safe_ktrace.log*
+echo 
+echo
+
+sleep 
+
+echo
+echo "running level 1 triage"
+echo
+cp /cygdrive/c/cygwin/home/anderr14/scripts/vnxe_searchterms ./
+process_VNXe_file.pl -path ./ -level 1
+echo
+echo
+
+
+
+echo
+echo "running level 2 triage"
+echo
+cp /cygdrive/c/cygwin/home/anderr14/scripts/vnxe_searchterms ./
+process_VNXe_file.pl -path ./ -level 2
+echo
+echo
+
+
+echo
+echo "running level 3 triage"
+echo
+cp /cygdrive/c/cygwin/home/anderr14/scripts/vnxe_searchterms ./
+process_VNXe_file.pl -path ./ -level 3
+echo
+echo
+
+
+
+
+
+
+echo
+echo "running network triage"
+echo
+cp /cygdrive/c/cygwin/home/anderr14/scripts/vnxe_networkterms ./
+process_VNXe_file.pl -path ./ -nw
+echo
+echo
+
+
+rm vnxe_searchterms
+
+rm vnxe_networkterms
+
+
+
+mv $fileToExtract ..
+echo
+echo "Commands are complete"
+echo
+read
+exit
+
+
+
+
+
+

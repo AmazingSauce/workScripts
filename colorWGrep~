@@ -1,0 +1,15 @@
+#!/bin/bash
+
+echo "What do you want to search for?"
+echo
+read "whatToSearchFor"
+echo
+echo "we will now pipe the grep command recursively from your current directory searching for $whatToSearchFor"
+echo
+echo
+echo
+sleep 2
+echo
+grep --color=always -r -i -C 3 $whatToSearchFor * | less -R
+
+

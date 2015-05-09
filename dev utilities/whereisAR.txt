@@ -1,0 +1,3 @@
+#!/bin/bash
+arnum=`echo $@ | sed -e 's/[Aa][Rr]//'`
+exec /disks/USD_dumps1/bin/whereisAR.pl "$arnum"

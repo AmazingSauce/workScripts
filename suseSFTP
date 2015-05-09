@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "Utahlab12#"
+sftp root@10.241.252.147

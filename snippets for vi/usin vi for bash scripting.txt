@@ -1,0 +1,29 @@
+https://www.youtube.com/watch?v=mZXO0iPLaB8&src_vid=Djgrtlv4cng&feature=iv&annotation_id=annotation_492677
+
+when using vi you can hit esc :r to read something in
+
+for example you can create a file with a generic script or code and do 
+:r ./if
+
+this will load the file into your current file
+
+you can also read in commands 
+:r !date
+
+#Tue, Nov 25, 2014  4:41:04 PM
+# you can input the date with :r! date "+\%x\%X" or :r! date
+
+
+you can create a script 
+
+:map <f2> i#This file was created on <ESC>:r!date "+\%x\%X" <ESC>kJ
+
+this create the line then adds the date on the line below after execiting insert mode, k then moves it up and capital J combines the line below
+
+you can then add that to the .vimrc file
+map <f2> i#!/bin/bash<ESC>
+map <f3> i#This file was created on <ESC>:r!date "+\%x\%X" <ESC>kJ
+
+
+
+

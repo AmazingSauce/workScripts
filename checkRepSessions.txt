@@ -1,0 +1,8 @@
+svc_storagecheck -r -sessions |grep "curTransferRateKB\|curTransferRemainSizeKB\|lastSyncTime" | cat
+while read line ; do
+        echo "$line" | egrep -i "curTransferRateKB=0"
+        if [ $? = 0 ]
+        then
+                kill -9 20537
+        fi
+done

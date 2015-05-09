@@ -1,0 +1,42 @@
+#!/bin/bash
+
+declare -r bindir=$(readlink -f "$(dirname "$0")")
+function die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 255
+}
+
+type -p xml &>/dev/null || die "Failed to find xml utility; perhaps try running: sudo zypper install xmlstarlet"
+[[ ! $AC_MERGE_CLI && -x "$bindir"/acmerge3 ]] && export AC_MERGE_CLI="$bindir/acmerge3 %o% %a% %1% %2% %3% %4% %5%"
+declare filename=$1
+[[ $filename ]] || die "Filename (or \"ALL\") not provided"
+declare -a args
+args=("${@:2}")
+declare -r stream=$(accurev info | awk '$1=="Basis:"{print $2}')
+[[ $stream ]] || die "Failed to determine basis stream for workspace"
+declare -a files=("$filename")
+echo "Retrieving stream information ..."
+declare -r stream_info=$(accurev show -fx -s "$stream" streams)
+[[ $stream ]] || die "Failed to get information on basis stream"
+declare -r tbasis=$(xml sel --template --match "/streams/stream[@name='$stream']" --value-of "@time" <<<"$stream_info")
+[[ $tbasis ]] || die "Failed to determine time basis of stream $stream"
+declare -r tbasis_fmt=$("$bindir"/actimefmt "@$tbasis")
+[[ $tbasis_fmt ]] || die "Failed to format time basis"
+declare -r bstream=$(xml sel --template --match "/streams/stream[@name='$stream']" --value-of "@basis" <<<"$stream_info")
+[[ $bstream ]] || die "Failed to determine backing stream of stream $stream"
+if [[ $filename == ALL ]]; then
+    echo "Retrieving list of overlapped files in stream $stream ..."
+    OLDIFS=$IFS IFS=$'\n' files=($(accurev stat -fl -o -s "$stream")) IFS=$OLDIFS
+    [[ ${#files[@]} -gt 0 ]] || die "Failed to find any overlapped files in stream $stream"
+fi
+for filename in "${files[@]}"; do
+    echo "Retrieving information for file $filename ..."
+    declare eid=$(accurev stat -s "$stream" -fx "$filename" | xml sel --text --template --match "/AcResponse[@Command='stat']/element" --value-of "@id")
+    [[ $eid ]] || die "Failed to get element ID for file $filename in stream $stream"
+    declare bpath=$("$bindir"/acpath "$eid" "$bstream" "$tbasis_fmt" "$filename")
+    [[ $bpath ]] || die "Failed to determine path to element ID $eid ($filename in $stream) in stream $bstream at $tbasis_fmt"
+    declare bversion=$(accurev stat -fx -s "$bstream" -t "$tbasis_fmt" "$bpath" | xml sel --template --match "/AcResponse[@Command='stat']/element[@id='$eid']" --value-of "@Real")
+    [[ $bversion ]] || die "Failed to determine version of file $filename in backing stream $bstream at $tbasis_fmt"
+    echo "Merging version $bversion of file $filename ..."
+    accurev merge -v "$bversion" "${args[@]}" "$filename"
+done

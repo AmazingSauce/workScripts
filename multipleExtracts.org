@@ -1,0 +1,89 @@
+#!/bin/bash
+#
+
+#script to run multiple scripts for extracting files
+# firs tscriptis extract_dc.pl.txt which is a script that when logs are untared are saved as human readable form and saved in folder exract 
+
+
+
+
+echo "give full path of the file you want to extract"
+read "whereFileToExtract"
+cd $whereFileToExtract
+echo
+echo "What is the file name?"
+read "fileToExtract"
+echo
+echo "the file you entered is $fileToExtract:"
+echo
+#echo "Where do you want to extract the file to?"
+#read "whereToExtract"
+echo
+echo
+echo "file is being extracted"
+echo
+cd $whereFileToExtract
+mkdir extract
+mv $fileToExtract ./extract
+cd extract
+extract_dc.pl.txt $fileToExtract ./
+echo
+echo
+mv $fileToExtract $whereFileToExtract
+cd $whereFileToExtract
+mkdir level1Triage
+mv $fileToExtract ./level1Triage
+echo
+echo
+echo "now we will extract and run a triage:"
+cd level1Triage
+echo
+echo
+echo "moving to " 
+pwd
+echo
+echo "decompressing"
+echo
+process_VNXe_file.pl -path ./ -decomp
+echo
+echo "running level 1 triage"
+echo
+cp /cygdrive/c/cygwin/home/anderr14/scripts/vnxe_searchterms ./
+process_VNXe_file.pl -path ./ -level 1
+echo
+echo
+rm vnxe_searchterms
+mv $fileToExtract ..
+echo "running ngtriage"
+cd $whereFileToExtract
+pwd
+mkdir triage
+mv $fileToExtract triage
+cd triage
+echo 
+triage.exe -f
+echo 
+echo
+echo "triage complete, now merging dart logs"
+echo
+
+mergelogs -o TRiiAGE_Dartlogs.txt -z spa/log/c4_cdxic2_native.log* spb/log/c4_cdxic2_native.log* spa/log/c4_cdxic3_native.log* spb/log/c4_cdxic3_native.log* spb/log/c4_cdxic2_native.log*
+
+
+echo "merged logs for spA and spB "
+echo 
+echo 
+echo
+
+mv $fileToExtract ..
+echo
+echo "Commands are complete"
+echo
+read
+exit
+
+
+
+
+
+

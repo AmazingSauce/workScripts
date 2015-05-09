@@ -1,0 +1,2 @@
+xmergelogs.exe -o TRiiAGE_Dartlogs.txt 
+spa/log/c4_cdxic2_native.log spb/log/c4_cdxic2_native.log spa/log/c4_cdxic3_native.log spb/log/c4_cdxic3_native.log

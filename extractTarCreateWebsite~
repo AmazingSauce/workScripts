@@ -1,0 +1,75 @@
+#!/bin/bash
+
+#extract logs and make a html page to access logs
+
+echo "give full path of the file you want to extract"
+read "whereFileToExtract"
+echo "What is the file name?"
+read "fileToExtract"
+echo "What is the SR#?"
+read "SRNumber"
+echo
+echo $SRNumber 
+echo $fileToExtract
+echo $whereFileToExtract
+sleep 2
+echo
+echo
+echo "******************************"
+echo "******************************"
+echo "******************************"
+echo
+echo "file is being extracted"
+echo
+echo "******************************"
+echo "******************************"
+echo "******************************"
+echo
+echo
+cd $whereFileToExtract
+echo
+extract_dc.pl.txt $fileToExtract ./
+echo
+echo
+cd $whereFileToExtract
+echo
+echo $PATH
+echo
+echo "file has been extracted"
+echo "*******************************"
+echo "*******************************"
+echo "*******************************"
+echo "now creating website to view logs"
+touch $SRNumber.html
+echo
+echo
+echo
+
+
+
+cat >> $SRNumber.html <<EOF
+<HTML>
+<HEAD>
+    <TITLE>
+    Extracted for SR#$SRNumber
+
+    </TITLE>
+</HEAD>
+
+<BODY>
+
+
+<a href=C:\cygwin\home\anderr14\logs\'$SRNumber> Where logs are extracted to.</a>
+    
+</BODY>
+</HTML>
+
+EOF
+
+echo "opening website"
+sleep 2
+cygstart.exe $SRNumber.html
+
+echo
+
+

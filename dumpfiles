@@ -1,0 +1,30 @@
+#!/bin/bash
+
+#created by Robert Anderson 03-06-2015
+
+echo "searching to see if there are any dump files on the system"
+echo
+
+sleep 3
+
+echo
+echo "will be looking in logs spx/core_dump_list.txt"
+echo
+
+grep *dump* sp*/core_dump_list.txt | less
+
+# could add option to put in date to grep
+# "you can search for a date for dumps on that day ex. mm/dd/yyyy"
+# read dateOfDumps
+# grep *dump* sp*/core_dump_list.txt | less | grep $dateOfDumps
+
+echo
+echo
+echo "copying output to keyboard"
+
+less sp*/core_dump_list.txt | grep *dump* > /dev/clipboard
+
+echo
+echo
+
+sleep 3

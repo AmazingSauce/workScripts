@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo Utahlab12#
+ssh willis@10.241.252.145
+

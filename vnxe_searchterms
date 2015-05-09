@@ -1,0 +1,304 @@
+# Add your terms in the format below
+# filename, searchterm, level
+# filenames of mylog are searched as mylog* so you will see entries in :mylog.1, mylog.2 etc
+# Search level defaults to 1 and is changed by -level <#>
+#
+# Many of these will change over time. It would be great to have the source file info to check each.
+# TODO
+# this line in boot.debug indicates a reimage
+# Current partitioning scheme does not match. Repartitioning.
+start_c4.log, "STONITH", 1
+start_c4.log, "Orville", 1
+start_c4.log, "IoError", 1
+start_c4.log, "stable cluster", 1
+start_c4.log, "Timed out", 1
+start_c4.log, "to reboot", 1
+start_c4.log, "TEST SCRIPT", 1
+start_c4.log, "Rebooting peer", 1
+start_c4.log, "Scheduling Node", 1
+start_c4.log, "ERROR: failed to", 1
+start_c4.log, "failed to initialize", 1
+start_c4.log, "c4_shutdown.sh: called", 1
+## Corruption exposure
+start_c4.log, "ignore request to reset", 1
+start_c4.log, "everybody should be down", 1
+start_c4.log, "CDX2 action", 2
+start_c4.log, "CDX3 action", 2
+start_c4.log, "call failed", 2
+start_c4.log, "Failed to ping server", 2
+start_c4.log, "Upstart: ecom: pre-stop completed", 2 
+start_c4.log, "Upstart: ecom: pre-start completed", 2
+start_c4.log, "phase I/II/CIC initialize complete", 2
+start_c4.log, "phase1_complete", 3
+start_c4.log, "Upstart: c4-boot: pre-start completed", 3
+# Want Corruption and corrupted. See with Dart processing of checkpoints.
+c4_cdxic2_native.log, "orrupt", 1
+c4_cdxic3_native.log, "orrupt", 1
+# See snap delete failures
+c4_cdxic2_native.log, "deleteVersion", 1
+c4_cdxic3_native.log, "deleteVersion", 1
+# Dart stopping
+c4_cdxic2_native.log, "SHUTDOWN", 1
+c4_cdxic3_native.log, "SHUTDOWN", 1
+# Seen when autoextend fs has no space to extend
+c4_cdxic2_native.log, "NoSpace", 3 
+c4_cdxic3_native.log, "NoSpace", 3
+c4_cdxic2_native.log, "panic requested", 1
+c4_cdxic3_native.log, "panic requested", 1
+# Dart can't process IO, timeouts to flare
+c4_cdxic2_native.log, "Get Reason IoError", 1
+c4_cdxic3_native.log, "Get Reason IoError", 1
+c4_cdxic2_native.log, "I/O not progressing", 1
+c4_cdxic3_native.log, "I/O not progressing", 1
+# Failure to start iSCSI, Will cause DU. 
+c4_cdxic2_native.log, "iscsiAddress already", 1
+c4_cdxic3_native.log, "iscsiAddress already", 1
+c4_cdxic2_native.log, "failed to initialize", 1
+c4_cdxic3_native.log, "failed to initialize", 1
+c4_cdxic2_native.log, "reservation conflict", 1
+c4_cdxic3_native.log, "reservation conflict", 1
+# Not sure what causes these but it prevents IO.
+c4_cdxic2_native.log, "Frozen", 2
+c4_cdxic3_native.log, "Frozen", 2
+c4_cdxic2_native.log, "CheckDB", 2
+c4_cdxic3_native.log, "CheckDB", 2
+# Thin lun space exhausted
+c4_cdxic2_native.log, "Dest is full", 2
+c4_cdxic3_native.log, "Dest is full", 2
+# Indicates dart can't find a flare lun from it's config file (DL)
+c4_cdxic2_native.log, "Serial Number", 2
+c4_cdxic3_native.log, "Serial Number", 2
+# These indicate a failure to setup an NDMP backup
+c4_cdxic2_native.log, "connect error", 2
+c4_cdxic3_native.log, "connect error", 2
+# Look for CHAP errors
+c4_cdxic2_native.log, "authentication", 2
+c4_cdxic3_native.log, "authentication", 2
+# Hmm
+c4_cdxic2_native.log, "Too many files opened", 2
+c4_cdxic3_native.log, "Too many files opened", 2
+# Server can not connect
+c4_cdxic2_native.log, "connection refused", 2
+c4_cdxic2_native.log, "connection refused", 2
+# These are from Darts, indicate which network they are using (vnic0 maps to local eth ports vnic0-b maps to peer)
+c4_cdxic2_native.log, "vnic", 3
+c4_cdxic3_native.log, "vnic", 3
+# Doesn't indicate anything, used as a confirmation of time
+c4_cdxic2_native.log, "clock", 3
+c4_cdxic3_native.log, "clock", 3
+# These indicate the start of an NDMP backup
+c4_cdxic2_native.log, "START", 3
+c4_cdxic3_native.log, "START", 3
+# Not sure what these are, causes host io errors
+c4_cdxic2_native.log, "Run out", 3
+c4_cdxic3_native.log, "Run out", 3
+c4_cdxic2_native.log, "bad magic", 3
+c4_cdxic3_native.log, "bad magic", 3
+c4_cdxic2_native.log, "zapdiskmark", 3
+c4_cdxic3_native.log, "zapdiskmark", 3
+# Darts can't talk out
+c4_cdxic2_native.log, "bad gateway", 3
+c4_cdxic3_native.log, "bad gateway", 3
+# UFS thread issue
+c4_cdxic2_native.log, "SYNC WATCHDOG", 3
+c4_cdxic3_native.log, "SYNC WATCHDOG", 3
+# These indicate the an error or end to an NDMP backup
+c4_cdxic2_native.log, "CONNECT_CLOSE", 3
+c4_cdxic3_native.log, "CONNECT_CLOSE", 3
+c4_cdxic2_native.log, "cannot locate", 3
+c4_cdxic3_native.log, "cannot locate", 3
+c4_cdxic2_native.log, "recovery took", 3 
+c4_cdxic3_native.log, "recovery took", 3 
+# Theads can't run, hosts may timeout
+c4_cdxic2_native.log, "ThreadsServicesSupervisor", 3
+c4_cdxic3_native.log, "ThreadsServicesSupervisor", 3
+# Includes extend messsages
+c4_cdxic2_native.log, "FSTOOLS", 4
+c4_cdxic3_native.log, "FSTOOLS", 4
+# Flare not processing IOs
+c4_cdxic2_native.log, "check_timeout", 4
+c4_cdxic3_native.log, "check_timeout", 4
+# Part of lun demotion
+c4_cdxic2_native.log, "removeLU", 4
+c4_cdxic3_native.log, "removeLU", 4
+# Iscsi connections UP/DOWN
+c4_cdxic2_native.log, "Logout Close Session", 4
+c4_cdxic2_native.log, "Logout Close Session", 4
+c4_cdxic3_native.log, "ckpt", 5
+c4_cdxic3_native.log, "ckpt", 5 
+# These are seen as dart processes it's config file
+c4_cdxic2_native.log, "volume", 5
+c4_cdxic3_native.log, "volume", 5
+# These are the iscsi connect good/bad entries
+c4_cdxic2_native.log, "connect", 5
+c4_cdxic3_native.log, "connect", 5
+c4_cdxic2_native.log, "closeSession", 5
+c4_cdxic3_native.log, "closeSession", 5
+# Print out dart config commands
+c4_cdxic2_native.log, "Command", 5
+c4_cdxic3_native.log, "Command", 5
+c4_cdxic2_native.log, "sendCmd failed", 5
+c4_cdxic3_native.log, "sendCmd failed", 5
+c4_ccsx_native.log, "panic requested", 1
+c4_ccsx_ktrace.log, "P_DESTROY", 1
+# Seen in ktrace when a drive is removed or added
+c4_ccsx_ktrace.log, "physically", 1
+c4_ccsx_ktrace.log, "Permanent", 1
+c4_ccsx_ktrace.log, "Read got", 1
+# Drives being killed
+c4_ccsx_ktrace.log, "dead count", 1
+c4_ccsx_ktrace.log, "Vault load failed", 1
+c4_ccsx_ktrace.log, "FlareInvalidateDisks", 1
+# Over temp
+c4_ccsx_ktrace.log, "Ambient overtemperature", 1
+c4_ccsx_ktrace.log, "state HOST_BROKEN_UNIT", 1
+c4_ccsx_ktrace.log, "Poll saw fewer enclosures", 1
+c4_ccsx_ktrace.log, "expansion_port_discovery_update", 1
+c4_ccsx_ktrace.log, "ASCQ", 2
+c4_ccsx_ktrace.log, "ACTIVATE", 2
+c4_ccsx_ktrace.log, "LU_UNBOUND", 2
+c4_ccsx_ktrace.log, "VAULT_LOAD", 2
+c4_ccsx_ktrace.log, "rev failed", 2
+c4_ccsx_ktrace.log, "death_reason", 2
+# This means a DAE has been inserted on BUS1 (wrong backend port) and will not be usage.
+c4_ccsx_ktrace.log, "BUS_NUM_MISMATCH", 2
+c4_ccsx_ktrace.log, "LUSM_BIND_COMPLETE", 2
+c4_ccsx_ktrace.log, "(BE1) CALLBACK: LINK UP", 2
+# Cache dirty is only bad when it becomes can't assign
+c4_ccsx_ktrace.log, "cache_dirty_unit_count", 2
+c4_ccsx_ktrace.log, "Ownership Loss IownLun", 2
+c4_ccsx_ktrace.log, "Creating device CLARiiONdisk", 2
+c4_ccsx_ktrace.log, "CFD", 3
+c4_ccsx_ktrace.log, "READY",5
+c4_ccsx_ktrace.log, "session", 3
+c4_ccsx_ktrace.log, "Rebuild", 3
+c4_ccsx_ktrace.log, "revision", 3
+c4_ccsx_ktrace.log, "eventlog", 3
+c4_ccsx_ktrace.log, "failed with", 3
+c4_ccsx_ktrace.log, "RAID_GROUP_S", 3 
+c4_ccsx_ktrace.log, "PEER_DEGRADED", 3 
+c4_ccsx_ktrace.log, "new peer state", 3
+c4_ccsx_ktrace.log, "LUSM_FRU_REMOVE", 3
+c4_ccsx_ktrace.log, "Background Verify", 3 
+c4_ccsx_ktrace.log, "Background Zeroing", 3 
+c4_ccsx_ktrace.log, "Starting CA_ASSIGN_UNIT", 3
+c4_ccsx_ktrace.log, "SPID: DriverEntry starting", 3
+c4_ccsx_ktrace.log, "RING_BUFF", 4
+c4_ccsx_ktrace.log, "LUSM_RELEASE_FOR_TRESPASS_DONE", 4
+c4_ccsx_ktrace.log, "ENCL", 5
+# Seen during drive failures
+c4_ccsx_ktrace.log, "UpperDH Retry", 5
+c4_ccsx_ktrace.log, "fbe_shim_handle_start_command", 5
+c4_admin_trace.log, "OPERATION", 5
+c4_admin_trace.log, "TRANSATION", 5
+messages, "dumpfile", 1
+messages, "FAILED", 1
+messages, "segfault", 1
+messages, "exception", 1
+messages, "Remapping", 1
+messages, "WARN: node", 1
+messages, "is unclean", 1
+messages, "Allocating block", 1
+# SLES 11 Startup/shutdown
+messages, "syslog-ng s", 1
+messages, "fatal internal error", 1
+messages, "Updating failcount for", 1
+messages, "terminated with status 1", 2
+messages, "ALERT", 2
+messages, "Set DC", 2
+# For failed to load messages
+messages, "failed to", 2
+messages, "timed out", 2
+# Pacemaker policy transition to shutdown resources
+messages, "Forcing", 2
+messages, "DEATH event", 2
+messages, "resource_ECOM:", 2
+messages, "ais_mark_unseen_peer_dead", 2
+messages, "arrived after a completed transition", 2
+messages, "rsc:", 3
+messages, "pcdb", 3
+messages, "nas_fs", 3
+messages, "LINK IS", 3
+messages, "Link is", 3
+messages, "step time server", 3
+messages, "no resource found", 3
+messages, "Initiating action", 3
+messages, "check_action_definition", 3
+messages, "Performing", 4 
+messages, "confirmed on", 4
+messages, "Status update", 5 
+messages, "product serial number", 5
+upgrade.log, "Failed to upgrade", 1
+upgrade.log, "Unable to connect", 1
+# Start of upgrade including to and from builds
+upgrade_debug.log, "Initializing upgrade", 2
+upgrade_debug.log, "get_neo_version", 2
+EMCSystemLogFile.log, "NMI", 1
+# Malformed TLP causes reboots
+EMCSystemLogFile.log, "TLP", 1
+EMCSystemLogFile.log, "major failures", 1
+EMCSystemLogFile.log, "connection down", 1
+EMCSystemLogFile.log, "cannot be extended", 1
+# The user is likely seeing a problem and trying to correct it
+EMCSystemLogFile.log, "user has requested to restart", 1
+# Replaced with sptool processing EMCSystemLogFile.log, "DMI", 3
+EMCSystemLogFile.log, "Fault", 1
+EMCSystemLogFile.log, "unsuccessfully", 1
+EMCSystemLogFile.log, "CRIT", 4 
+EMCSystemLogFile.log, "ERROR", 4 
+# VMWare error
+cemtracer_server_provider.log, "Connect failed", 1
+# VMWare error
+cemtracer_server_provider.log, "An error occurred", 1
+cemtracer_health_services.log, "link ", 3
+cemtracer.log, "DiskMark", 1
+cemtracer.log, "join failed", 1
+cemtracer.log, "No new disk", 1
+cemtracer.log, "backend error", 1
+cemtracer.log, "Could not find", 1
+cemtracer.log, "Unexpected std", 1
+cemtracer.log, "error acquiring", 1
+cemtracer.log, "failed to create", 1
+cemtracer.log, "OSLS exception", 1
+cemtracer.log, "unknown exception", 1
+cemtracer.log, "unexpected exception", 1
+cemtracer.log, "could not create the snapshot", 1
+#cemtracer.log, "Port", 2
+cemtracer.log, "Added LU", 2
+cemtracer.log, "Command: ", 2
+cemtracer.log, "to delete", 2
+cemtracer.log, "create LUN", 2
+cemtracer.log, "Logout request", 2
+cemtracer.log, "Deleting Shared", 2
+cemtracer.log, "got LUN with key", 2
+cemtracer.log, "create RAID Group", 2
+cemtracer.log, "BAM MODIFY request", 2
+cemtracer.log, "SharedFolder Delete", 2
+cemtracer.log, "Storage to be restored", 2
+cemtracer.log, "BAMIndication", 3
+cemtracer.log, "Calling client callback", 3
+cemtracer.log, "disk is not part of any pool", 3
+cemtracer.log, "Found a valid", 4
+cemtracer.log, "<VMwareStorage", 4
+cemtracer.log, "UIServices_StoragePool.cpp:4", 4
+# These are too noisy with no real info
+#cemtracer.log, "BAMTask timeout", 5 
+cemtracer.log, "BAM NEW operation", 5 
+cemtracer.log, "incoming BAM Request", 5
+cemtracer.log, "BL_SharedFolder.cpp", filter
+cmd_log, "nas", 4
+cmd_log, "server", 4
+nas_log.al.err, "volume", 1
+# This is a failed filesystem extension
+nas_log.al.err, "extension failed", 1
+# This indicates the inability to talk to the CIFS domain server, and thus the clients can't connect
+nas_log.al.err, "Connection timeout", 1
+nas_log.al.err, "delete", 3
+nas_log.al.err, "create", 3
+nas_log.al.mgmtd, "failed=true", 3
+# Can't use ecom, no timestamp
+#ecom_output, "Failed", 1
+#
+#
+#added on by willis
+start_c4.log, "STONITH", 1

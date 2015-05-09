@@ -1,0 +1,14 @@
+start_c4.log, "Not used", 1
+#c4_cdxic2_native.log, "orrupt", 1
+#c4_cdxic3_native.log, "orrupt", 1
+#c4_ccsx_native.log, "panic requested", 1
+#c4_ccsx_ktrace.log, "P_DESTROY", 1
+messages, "Not used", 1
+#cemtracer.log, "create LUN", 1
+#EMCSystemLogFile.log, "NMI", 1
+#cemtracer_server_provider.log, "Connect failed", 1
+#cemtracer_health_services.log, "link ", 3
+#cmd_log, "server", 4
+#nas_log.al.err, "volume", 1
+upgrade.log, "Not used" , 1
+upgrade_debug.log, "Not used" , 1

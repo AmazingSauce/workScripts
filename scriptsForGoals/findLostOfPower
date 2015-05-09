@@ -1,0 +1,23 @@
+#!/bin/bash
+# script created 03/23/2015 for finding powerloss in logs
+echo
+echo "searching for power lost from logs"
+echo
+
+echo " going to be searching DMI logs, which are /spx/sptool/sptool_id_-l.txt"
+echo
+echo
+sleep 5
+
+grep -C 3 'Save Cache Begin' sp*/sptool/sptool_-d_-l.txt | less
+
+echo
+echo 
+echo "copying output of searching for 'Save Cache Begin' in  /sp*/sptool/sptool_id_-l.txt to powerLoss.txt"
+echo
+
+grep -C 3 'Save Cache Begin' sp*/sptool/sptool_-d_-l.txt >> powerLoss.txt
+
+echo
+echo
+

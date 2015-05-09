@@ -1,0 +1,170 @@
+#!/bin/bash
+
+##############################################################
+##
+##          monitor_volcopytor.sh
+##          Author: Bill Stein
+##                  bill.stein@emc.com
+##
+            Version=1.0
+##
+##          Description:  This utility will monitor a volcopy and will show the
+##                        progression and the approximate end time remaining.  Since the end time
+##                        is calculated using the amount of progression over the past minute only,
+##                        the time calculation is only approximate.
+##
+##          Revision History:
+##              1.0  14 Nov 2012  Initial Release
+##              0.5  21 Oct 2012  First beta
+##
+##          Future to-do:
+##              - Calculate the approximate end time using data from the last 5 or ##10 minutes rather
+##                   than just one minute.
+##
+##############################################################
+
+##############
+##
+##  Variables
+##
+
+count=1
+prev5min=0
+
+##############
+##
+## Functions
+##
+
+usage() {
+echo "Usage: `basename $0` [server_name] [ volume_id ]"
+echo "              | [{ -v | --version }] "
+exit 1
+}
+
+showversion() {
+echo "monitor_volcopy.sh, version $Version"
+exit 0
+}
+
+##############
+##
+##  START
+##
+
+if [ $# -eq 1 ];
+then
+        if [ $1 -eq "-v" -o $1 -eq "--version" ];
+        then
+		showversion             
+        fi
+fi
+
+if [ $# -ne 2 ];
+then
+	if [ "$1" = "-v" -o "$1" = "--version" ];
+        then
+		showversion             
+	else
+ 		usage
+	fi
+fi
+
+########
+##
+## check and parse args
+##
+
+server=$1
+vol=$2
+
+.server_config $server -v "volcopy display" | grep -A1 $vol > /dev/null
+if [ $? -ne 0 ]; then
+        .server_config $server -v "volcopy display" | grep "Volcopy" > /dev/null
+        if [ $? -ne 0 ]; then
+                echo "ERROR: I did not find a volcopy running; please check command-line and re-enter."
+                exit 1
+        else
+                echo "ERROR: Volume ID $vol is incorrect, please correct and restart."
+                exit 1
+        fi
+fi
+
+########################
+##
+##  MAIN LOGIC
+##
+
+lastBlocks=0
+totalBlocks=`.server_config $server -v "volcopy display" | grep -A1 $vol | grep blocksCopied | awk '{print $1}' | cut -d":" -f2`
+while :
+do
+        clear
+        echo "VOLCOPY MONITORING TOOL, VERSION $Version"
+        echo "Monitoring volcopy of volume $vol"
+        echo
+        blocksCovered=`.server_config $server -v "volcopy display" | grep -A1 $vol | grep blocksCopied | awk '{print $2}' | cut -d":" -f2`
+        if [ $? -ne 0 ]; then
+                echo "It appears we are done (or there was an error that I don't know about yet)."
+                exit 0
+        fi
+        if [ $lastBlocks -ne 0 ];
+        then
+                blocksThisMin=$((blocksCovered-lastBlocks))
+                blocksRemaining=$((totalBlocks-blocksCovered))
+                minsRemaining=$((blocksRemaining/blocksThisMin))
+                echo "We processed $blocksThisMin blocks the past minute."
+                hours=$((minsRemaining/60))
+                mins=$((minsRemaining-hours*60))
+                tmpDate=`date`
+                currDate=`date --date="$tmpDate" +%s`
+                secsRemaining=$((minsRemaining*60))
+                finishUnixDate=$((currDate+secsRemaining))
+                finishDate=$(echo $finishUnixDate | awk '{print strftime("%c",$1)}')
+                echo "We should have $hours hours and $mins minutes remaining."
+                echo "Approximate end time is $finishDate."
+                echo
+                lastBlocks=$blocksCovered
+
+                # Adding a 5-element array to check the time over 5 minutes
+
+                avgBlocks[$count]=$blocksThisMin
+                if [ $count -gt 5 ]; then
+                        total5blocks=0
+                        for j in ${avgBlocks[@]}; do
+                                total5blocks=`expr $total5blocks + $j`
+                        done
+                        avg5blocksCovered=$((total5blocks/5))
+                        avg5blocksRemaining=$((totalBlocks-total5blocks))
+                        avg5minsRemaining=$((avg5blocksRemaining/avg5blocksCovered))
+                        echo
+                        echo "  Over the past 5 minutes, we processed $total5blocks blocks."
+                        avg5hours=$((avg5minsRemaining/60))
+                        avg5mins=$((avg5minsRemaining-avg5hours*60))
+                        avg5tmpDate=`date`
+                        avg5currDate=`date --date="$avg5tmpDate" +%s`
+                        avg5secsRemaining=$((avg5minsRemaining*60))
+                        avg5finishUnixDate=$((avg5currDate+avg5secsRemaining))
+                        avg5finishDate=$(echo $avg5finishUnixDate | awk '{print strftime("%c",$1)}')
+                        echo "  Using a 5-minute average, we should have $avg5hours hours and $avg5mins minutes remaining."
+                        echo "  This means an end time of $avg5finishDate."
+                        echo
+                        prevAvg5FinishDate=$avg5finishDate
+                        prev5min=1
+                        count=1
+                else
+                        echo
+                        if [ $prev5min -eq 1 ]; then
+                                echo "  Previous 5-minute end time: $prevAvg5FinishDate."
+                        fi
+                        echo "  Still collecting data for 5-minute average analysis."
+                        count=`expr $count + 1`
+                fi
+        else
+                echo "Please wait one minute while data is collected."
+                lastBlocks=$blocksCovered
+        fi
+sleep 60
+done
+
+

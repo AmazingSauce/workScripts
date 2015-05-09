@@ -1,0 +1,27 @@
+#!/bin/bash
+
+#created by Robert Anderson 03-06-2015
+
+echo "searching logs for soft media errors"
+echo 
+echo "We will be checking logs ./sp*/var/log/c4_ccsx_ktrace.log ./sp*/system_log/shared/EMCSystemLogFile.log ./sp*/var/log/messages ./sp*/var/log/initrd/ccsx_ktrace.log* and looking for sas_physical_drive_get_cc_error"
+sleep 3
+echo
+zgrep "sas_physical_drive_get_cc_error" ./spa/log/c4_ccsx_ktrace.log ./spa/var/log/initrd/ccsx_ktrace.log* ./spa/system_logs/shared/EMCSystemLogFile* ./spa/var/log/messages ./spb/log/c4_ccsx_ktrace.log ./spb/var/log/initrd/ccsx_ktrace.log* ./spb/system_logs/shared/EMCSystemLogFile* ./spb/var/log/messages | less
+
+
+
+echo 
+sleep 2
+
+# idea is to list out seperately the same drive and count how many times that drive is getting the errors.
+# echo "listing by drive and how many each drive has for the sas_physical_drive_get_cc_error"
+# echo
+# echo
+
+
+# this will cut the rough that has the disk number in it, 
+# zgrep "sas_physical_drive_get_cc_error" ./sp*/log/c4_ccsx_ktrace.log ./sp*/var/log/initrd/ccsx_ktrace.log* ./sp*/system_logs/shared/EMCSystemLogFile* ./sp*/var/log/messages | less | awk '{ print $7 }'
+
+# now need to find out how to sort and count the same disk numbers and ouput for each drive
+

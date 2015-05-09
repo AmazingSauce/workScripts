@@ -1,0 +1,820 @@
+#! /usr/bin/perl
+
+# v3.7 (Alex Stolyar)
+# This script will extract Neo A or Neo B data collects (includes MR1)
+# and Mozzo
+# + processing cmd_outputs
+# + svc_neo_map
+
+
+use File::Copy;
+use File::Basename;
+use Cwd;
+use POSIX qw(strftime);
+
+$pwd = getcwd();
+
+if(scalar @ARGV < 1){
+    print "This script extracts Neo A or Neo B/VNXe data collects.\n";
+    print "Usage: extract_dc.pl <dc_dile> [<destination_path>]\n";
+    print "If * is specified, script will extract all data collects found in a directory\n";
+    exit;
+
+}
+
+if ($ARGV[0]=~m/\*/) {
+    opendir(DIR, $pwd);
+    @files = readdir(DIR); 
+    closedir(DIR);
+    for (1..2) {shift @files;} #get rid of '.' and '..'
+}
+else {
+    @files = $ARGV[0];
+}
+if (scalar @ARGV > 1){
+    $Destination= $ARGV[1];
+}
+else {
+    $Destination=$pwd;
+}
+
+@spver=(99,99,99,99);
+
+
+foreach my $file (@files) {
+
+   $DestDir=$Destination;
+   $path4neoa=' ';
+   $NeoA=0;
+   if (-e $file) {
+    # Verify that the file is a data collect tarball
+    if ($file!~m/\.tar/) {
+        print "\nNot a .tar file: $file\n"; 
+    }
+    else {
+        @res = `tar tvf \"$file\" `;
+        if(join('',@res) !~ m/\.service_dc/) {
+            print "\nSpecified file does not appear to be a VNXe data collect file: $file\n";
+        }
+        else {
+            #Check if data collect is for Neo A or Neo B
+            if ($res[0] =~ /^d.*\/$/) {
+                print "\nVNXe data collects detected: $file\n";
+                $path4neoa = "";
+                $NeoA = 0;
+            }
+            else {
+                print "\nNeo A data collects detected: $file\n";
+                $path4neoa = $file;
+                $path4neoa =~ s/\.tar/\//;
+                $NeoA = 1;
+                $DestDir = $DestDir."/".$path4neoa;
+                mkdir ($DestDir);
+            }
+
+            @FilesArray = Extract_File($file,$DestDir);
+            chomp ($FilesArray[0]);
+            $DestDir = $DestDir."/".$FilesArray[0] if (!$NeoA);
+    
+            # Create temp file that indicates that extract is in progress:
+            $TMPFILE=$DestDir."_extract_in_progress_.tmp";
+            $now_time = localtime;
+            open TMPFILE, '>'.$TMPFILE;
+            print TMPFILE "Extract started: $now_time\n";
+            print TMPFILE "PID: $$\n";
+            close TMPFILE;
+        
+            foreach my $f (@FilesArray) {
+                if ($f=~m/tgz/) {
+                    chomp ($f);
+                    $f =~ s/^\.\///;
+                    $f=$path4neoa.$f if (NeoA);
+                    @FilesArraySP = Extract_File($Destination."/".$f,$DestDir);
+                    $cmd=`rm -rf $Destination/$f`;
+    
+                    # check for version
+                    chomp (@FilesArraySP[0]);
+                    $GENFILE=$DestDir.@FilesArraySP[0]."general_information.txt";
+                    if (-e $GENFILE) {
+                        open(GENFILE) or die("Could not open log file: $GENFILE\n");
+                            foreach $line (<GENFILE>) {
+                                if ($line =~ m/Image Version.*(\d)\.(\d)\.(\d)\.(\d\d\d\d\d)/) {
+                                        @spver = ($1,$2,$3,$4);
+                                            $ver=join(".",@spver);
+                                            # print "\n*** Verion is: @spver[1] .. $ver ... $line\n"; 
+                                    }
+                    
+                            }
+                            close (GENFILE);
+                    }
+    
+    
+                    foreach my $ff (@FilesArraySP) {
+                        # Check which SP is primary and create a hint file:
+                        if ($ff=~m/licenses\/$/) {
+                            $ff=~m/sp(a|b)/;
+                            $primary=$1;    
+			    my $link_path=$DestDir."primary_sp".$primary;
+			    if ( ! -e $link_path){
+				print "Creating link to primary SP: primary_sp$primary -> sp$primary\n";
+                            	`ln -s sp$primary $link_path`;
+			    }
+                        }
+                        
+                        # if this is MR1, the primary one is that contains svc_scripts dir
+                        if (($ff=~m/svc_scripts\/$/) && (@spver[1] < 2)) {
+                            $ff=~m/\/sp(a|b)/;
+                            $primary=$1;
+			    my $link_path=$DestDir."primary_sp".$primary;
+                            if ( ! -e $link_path){
+                                print "Creating link to primary SP: primary_sp$primary -> sp$primary\n";
+                                `ln -s sp$primary $link_path`;
+                            }
+                        }
+                        
+                        # If this is svc_scripts dir - need to process files in there
+                        if ($ff=~m/svc_scripts\/$/) {
+                            (my $SPDir = $ff ) =~  s/\/svc_scripts\///;
+                            chomp $SPDir;
+                            $SPDir = $DestDir.$SPDir;
+                            my $cmd_outputs_path = $SPDir."/cmd_outputs";
+                            mkdir ($cmd_outputs_path);
+                            `cp $SPDir/svc_scripts/* $cmd_outputs_path 2>/dev/null`;
+                            `cp $SPDir/performance_util/* $cmd_outputs_path 2>/dev/null`;
+                            `cp $SPDir/sptool/sptool_-d_-l.txt $cmd_outputs_path 2>/dev/null`;
+                            
+                            # Copy history files
+                            for my $HistoryTrackingFile ( <$SPDir/history_tracking/*> ) {
+                                my $newHistoryFileName = basename($HistoryTrackingFile);
+                                $newHistoryFileName =~ s/-history-flushed\.txt//;
+                                $newHistoryFileName = "history-".$newHistoryFileName;
+                                copy( $HistoryTrackingFile, $cmd_outputs_path.'/'.$newHistoryFileName ) or warn "Cannot copy $HistoryTrackingFile: $!";
+                            }
+    
+			    # Run the split function
+                            split_svcscripts($cmd_outputs_path);
+				
+			    # Create svc_neo_map output
+			    unlink($cmd_outputs_path."/svc_neo_map.txt");
+			    if (-e $SPDir."/CS/cdx2_cfg") {
+			    	svc_neo_map($SPDir."/CS/cdx2_cfg", $SPDir."/live/c4admintool_data.txt", $cmd_outputs_path."/svc_neo_map.txt");
+			    }
+			    if (-e $SPDir."/CS/cdx3_cfg") {
+                                svc_neo_map($SPDir."/CS/cdx3_cfg", $SPDir."/live/c4admintool_data.txt", $cmd_outputs_path."/svc_neo_map.txt");
+                            }
+
+
+                        }
+				
+
+    
+                        # Extract db_reports (MR4 persistence db):
+                        if ($ff=~m/db_reports\.tgz/) {
+                            $dst_dir=$ff;
+                            $dst_dir=~s/db_reports\.tgz//;
+                            @FilesArrayDB_reports = Extract_File($DestDir.$ff,$DestDir.$dst_dir);
+                            $cmd=`rm -rf $DestDir$ff`; 
+                        }
+    
+                        @PathDepth=split /\//, $ff;
+                        # For pre-MR1 need to process extra level
+                        if (($ff=~m/(tgz|tar)$/) && (scalar(@PathDepth)==3)) {
+                            chomp ($ff);    
+                            $ff =~ s/^\.\///;
+                            $FilesArraySP[0] =~ s/^\.\///;
+                            @FilesArraySP2 = Extract_File($DestDir.$ff,$DestDir.$FilesArraySP[0]);
+                            $cmd=`rm -rf $DestDir$ff`;
+    
+                            chomp($FilesArraySP[0]);
+                            chomp($FilesArraySP2[0]);
+    
+                            # find dart logs and convert date in them
+    
+                            $dartlogpath=$DestDir.$FilesArraySP[0].$FilesArraySP2[0]."log/";
+                            opendir(DIR, $dartlogpath);
+                            @dartlogfiles = readdir(DIR);
+                            closedir(DIR);
+                            foreach my $dartlog (@dartlogfiles) {
+                                if ($dartlog =~m/\.gz$/) {
+                                }
+                                if ($dartlog =~m/c4_cdxic\d_native.log/) {
+                                                                if ($dartlog =~m/\.gz$/) {
+                                        @extracted_dartlog=Extract_File($dartlogpath.$dartlog,$dartlogpath);
+                                        $dartlog=~ s/\.gz//;
+                                                                }
+                                    FixDate($dartlog, $dartlogpath);
+                                }   
+    
+                            }           
+                        }
+    
+                        # For MR1: Check if this is a dart log and convert date to human readable format
+                        elsif ($ff =~m/c4_cdxic\d_native.log/) {
+                            chomp($FilesArraySP[0]);
+                            $dartlog = $ff;
+                            chomp($dartlog);    
+                            if ($dartlog =~m/\.gz$/) {
+                                @extracted_dartlog=Extract_File($DestDir.$dartlog,$DestDir.$FilesArraySP[0]."log");
+                                $dartlog=~ s/\.gz//;
+                            }
+                            FixDate($dartlog, $DestDir);
+    
+                            
+    
+                        }
+    
+                    }
+                    
+                }
+            }
+            $cmd=`rm -rf $TMPFILE`;
+                        
+        }
+
+    }
+
+   }
+
+}
+
+
+sub Extract_File 
+{
+    my ($file,$DestDir) = @_;
+    chomp ($file);
+    chomp ($DestDir);
+    print "Extracting: $file\n";
+    if ($file=~m/(\.tar\.gz|\.tgz)/) {
+        @extracted_files = `tar xvzf $file -C $DestDir 2>&1`;
+
+    }
+    elsif ($file=~m/\.gz/) {
+        $cmd_output = `gzip -f -d $file 2>&1`;
+        $file =~ s/\.gz//;
+        @extracted_files[0]=$file;
+
+    }
+    elsif ($file=~m/\.zip/) {
+        $cmd_output = `unzip -q -o $file -d $DestDir 2>&1`;
+        @extracted_files = `unzip -Z -1 $file -d $DestDir 2>&1`;
+    }
+    elsif ($file=~m/\.tar/) {
+        @extracted_files = `tar xvf $file -C $DestDir 2>&1`;
+    }
+    return @extracted_files;
+}
+
+
+sub FixDate
+{
+
+    my ($dartlog, $dartlogpath) = @_;
+    #$NEWLOGFILE = $LOGFILE."fixed";
+    $LOGFILE=$dartlogpath.$dartlog;
+    print "Converting Dart log dates: $dartlog\n";
+
+
+    open(NEWLOGFILE, '>>'.$LOGFILE.".fixed");
+    open(LOGFILE) or die("Could not open log file: $LOGFILE\n");
+    foreach $line (<LOGFILE>) {
+            $line =~ m/(^\d{10})\:.*/;
+            $timestamp=$1;
+            if ($timestamp=~ m/\d{10}/) {
+                    #$newtimestamp = scalar gmtime($timestamp);
+            $newtimestamp=strftime "%m-%d-%y %T", gmtime($timestamp);
+                    $line =~ s/^\d{10}/$newtimestamp/;
+
+            }   
+            print NEWLOGFILE $line;
+
+    }
+    close (NEWLOGFILE);
+    close (LOGFILE);
+    $NEWLOGFILE=$LOGFILE.".fixed";
+    rename($NEWLOGFILE, $LOGFILE);
+
+}
+    
+sub split_svcscripts {
+
+    my $pwd = shift;
+    my $GoodCommand=0;
+    my @curOutput='';
+    my $curFileName;
+    my @files = ("svc_networkcheck_--info.txt", "svc_storagecheck_-a.txt", "svc_networkcheck_--replication.txt", "svc_networkcheck_--netstat.txt", "svc_puhccheck_--check.txt");
+    
+    foreach my $file (@files) {
+        if (-e $pwd.'/'.$file) {
+            print "Splitting service scripts: $pwd/$file  \n" ;
+            open (FILE, $pwd.'/'.$file) or print("ERROR: Could not open log file: $pwd/$file\n");;
+            foreach my $line (<FILE>) {
+                
+                if ( $line =~ m/={5,}\sNow running\s(.*)\s\.{3}\s={5,}/ ) {
+                    #print $line;
+                    my $curCommand = $1;
+                    $curCommand=~s/\s+$//; # strip trailing spaces
+                    
+                    # This is the start of new command output
+                    
+                    # Dump the current output buffer, if any.  Reset the current buffer
+                        # Each buffer theoretically is the data between a previous command
+                        # output and this one.
+                    if ( $GoodCommand eq 1 ) {
+                        open(NEWFILE, '>'.$pwd.'/'.$curFileName);
+                        print NEWFILE @curOutput;
+                        @curOutput='';
+                        close (NEWFILE);
+                    }
+                    $GoodCommand=0;
+                    
+                    # Design problem here is that there's a wide variety of STYLE
+                    # of commands run, and it's difficult to come up with a smart
+                    # set of rules to apply to decide whether this is an
+                    # "interesting" command or not. 
+        
+                    # There are also a number of comamnds which are just not
+                    # useful, so are clutter. 
+        
+                    # For right now, hardcoding a set of matching rules based on
+                    # what's in current collects.  Need to review this as new DC
+                    # versions come out anyway.
+                    
+                    if (    $curCommand =~ m/\.\/server_.*/ &&
+                            $curCommand !~ m/.*ialect.*/ || 
+                            $curCommand =~ m/.*list_snap.*/ || 
+                            $curCommand =~ m/\.\/fs_.*/ || 
+                            $curCommand =~ m/.*nas_.*/ || 
+                            $curCommand =~ m/.*\/bin\/ps .*/ || 
+                            $curCommand =~ m/\/bin\/df.*/ || 
+                            $curCommand =~ m/\/bin\/mount/ || 
+                            $curCommand =~ m/.*sptool.*/ || 
+                            $curCommand =~ m/.*crm_mon.*/ || 
+                            $curCommand =~ m/.*clariiontool.*/ ) {
+                        
+                        # This is output we want to split into another file.
+                        $curCommand = basename($curCommand);
+                        $GoodCommand=1;
+                        
+                        # Need to build a filename based on the command name.
+                        # Replace special characters (spaces, quotes, etc) with
+                        # underscores.
+                        
+                        $curFileName = $curCommand;
+                        $curFileName =~ s/\s/_/g;
+                        $curFileName =~ s/\"/_/g;
+                        
+                        # Strip out some common strings that we don't need in the filename
+                        
+                        $curFileName =~ s/_ALL//g;
+                        $curFileName =~ s/_-/-/g;
+                    }
+                }
+                
+                if ($GoodCommand eq 1 ) {
+                    push @curOutput, $line;
+                }   
+            }
+        }
+    }
+    
+}
+
+
+sub svc_neo_map {
+
+# newfstodisk.pl - takes cdx#_cfg and c4admintool_data.txt to do the
+# mapping:
+# from collect directory:
+# newfstodisk.pl CS/cdx2_cfg live/c4admintool_data.txt
+my %ddisk;
+my %type;
+my %slice;
+my %sliceB;
+my %sliceE;
+my %stripe;
+my @stripemembers;
+my %hyper;
+my @hypermembers;
+my %filesystem;
+my %storagegroup;
+my %storagegroupmember;
+my %group;
+my $groupwwn;
+my %groupLU;
+my %groupdisk;
+my %disk;
+my %encl;
+my %dlu;
+my %dlugroup;
+my %vlu;
+my %diskstate;
+my $getwwn = 0;
+my $getLUwwn = 0;
+my $getdluwwn = 0;
+my $getdiskwwn = 0;
+my $groupnum;
+my $config_file = shift;
+my $adminfile = shift;
+my $output_file = shift;
+my $SGID;
+open ADMINFILE, $adminfile or return;
+open CONFIG, $config_file or return;
+
+open (OUTFILE, '>>',$output_file);
+
+my $pos = index($config_file, "cdx");
+my $dartnum = substr($config_file,3+$pos,1);
+print OUTFILE "=====================================================================\n";
+print OUTFILE "File system to disk mappings for server_$dartnum:\n";
+print OUTFILE "=====================================================================\n\n";
+
+print "Creating svc_neo_map output for server_$dartnum\n";
+
+
+$dartnum = $dartnum - 2;
+$SGID = "dart" . "$dartnum";
+print OUTFILE "Flare storage group: $SGID\n";
+print OUTFILE " (Duplicate luns for a file system indicate thin provisioning or extended FS)\n";
+while (<ADMINFILE>)
+{
+    if (/^Disk #/)
+    {
+        @input = split " ";
+        $diskwwn = pop(@input);
+        @input = reverse @input;
+        pop(@input);
+        pop(@input);
+        $disknum = pop(@input);
+        pop(@input);
+        pop(@input);
+        $enclnum = pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        $diskremoved = pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        pop(@input);
+        $disk{$diskwwn} = $disknum;
+        $encl{$diskwwn} = $enclnum;
+        $diskstate{$diskwwn} = $diskremoved;
+    }
+    if (/completed enumerate raid_groups/)
+    {
+        $getdiskwwn = 0;
+    }
+    if (/Group Number/)
+    {
+        @input = split " ";
+        $groupnum = pop(@input);
+        $getwwn = 1;
+        $getdiskwwn = 0;
+    }
+    if (/LUs in this RG:/)
+    {
+        $getLUwwn = 1;
+        $groupLU{$groupwwn} = " ";
+    }
+    if (/Disks in this RG:/)
+    {
+        $getLUwwn = 0;
+        $getdiskwwn = 1;
+        $groupdisk{$groupwwn} = " ";
+    }
+    if (/wwn/)
+    {
+        if ($getsgwwn)
+        {
+            $getsgwwn = 0;
+            $getmemberwwn = 1;
+            @input = split " ";
+            $sgwwn = pop(@input);
+            $storagegroup{$storagegroupname} = $sgwwn;
+            $storagegroupmember{$sgwwn} = " ";
+        }
+        if ($getmemberwwn)
+        {
+            @input = split " ";
+            $memberwwn = pop(@input);
+            $storagegroupmember{$sgwwn} = $storagegroupmember{$sgwwn} . " " . $memberwwn;
+            pop(@input);
+            pop(@input);
+            $sgmember{$memberwwn} = pop(@input);
+        }
+        if ($getdluwwn)
+        {
+            $getdluwwn = 0;
+            @input = split " ";
+            $groupnum = pop(@input);
+            $dlugroup{$dluwwn} = $groupnum;
+        }
+        if ($getwwn)
+        {
+            $getwwn = 0;
+            @input = split " ";
+            $groupwwn = pop(@input);
+            $group{$groupwwn} = $groupnum;
+        }
+        if ($getLUwwn)
+        {
+            @input = split " ";
+            $groupLU{$groupwwn} = $groupLU{$groupwwn} . " " . pop(@input);
+        }
+        if ($getdiskwwn)
+        {
+            @input = split " ";
+            $groupdisk{$groupwwn} = $groupdisk{$groupwwn} . " " . pop(@input);
+        }
+    }
+
+    if (/^LUN /)
+    {
+        $getdluwwn = 1;
+        @input = split " ";
+        $dluwwn = pop(@input);
+        pop(@input);
+        pop(@input);
+        $dlunum = pop(@input);
+        $dlu{$dluwwn} = $dlunum;
+    }
+    if (/Storage Group Name:/)
+    {
+        @input = split " ";
+        $storagegroupname = pop(@input);
+        $getsgwwn = 1;
+        $getmemberwwn = 0;
+    }
+    if (/completed enumerate storage_groups/)
+    {
+        $getsgwwn = 0;
+        $getmemberwwn = 0;
+    }
+}
+while (<CONFIG>)
+{
+    if (/volume/)
+    {
+    @input = reverse split " ";
+    $one = pop @input;
+    $two = pop @input;
+    $three = pop @input;
+    if ($one =~ /volume/) {
+        if ($two =~ /disk/)
+        {
+            pop @input;
+            $ddisk{$three} = pop @input;
+            $size = pop @input;
+            $pos = index($size,"=");
+            $meg = substr($size, $pos+1);
+            $volsize{$three} = $meg * 2048;
+            $volsize{$ddisk{$three}} = $volsize{$three};
+            $type{$three} = "disk";
+        }
+        if ($two =~ /slice/) {
+            $sliceB{$three} = pop @input;
+            $sliceE{$three} = pop @input;
+            $slice{$three} = pop @input;
+            $volsize{$three} = $sliceE{$three};
+            $type{$three} = "slice";
+        }
+        if ($two =~ /stripe/) {
+            pop @input;
+            $stripe{$three} = pop @input;
+            $type{$three} = "stripe";
+            $el1 = "";
+            while (defined($el = pop @input))
+            {
+                $el1 = $el1 . " " . $el;
+                $size = $volsize[$el];
+            }
+            $stripemember[$three] = $el1;
+            $volsize{$three} = $size;
+        }
+        if ($two =~ /hyper/) {
+            $hyper{$three} = pop @input;
+            $type{$three} = "hyper";
+            $el1 = "";
+            $size = 0;
+            while (defined($el = pop @input))
+            {
+                $el1 = $el . " " . $el1;
+                $size = $size + $volsize{$el};
+            }
+            $hypermember[$three] = $el1;
+            $volsize{$three} = $size;
+        }
+    }
+    }
+    if (/file mount/)
+    {
+    @input = reverse split " ";
+    $one = pop @input;
+    $two = pop @input;
+    $three = pop @input;
+    if ($one =~ /file/) {
+        pop @input;
+        $five = pop @input;
+        $filesystem{$five} = pop @input;
+    }
+    }
+}
+# Build the LUN to RG:Disk mapping for printing
+my %LURGtable;
+my %RGdisktable;
+while ( ($key, $value) = each %group)
+{
+    if (defined($groupLU{$key}))
+    {
+        @lu = split " ", $groupLU{$key};
+        while (defined($l = pop(@lu)))
+        {
+             $rg = $dlu{$l};
+             $LURGtable{$rg} = $value;
+        }
+    }
+    $RGdisktable{$value} = " ";
+    if (defined($groupdisk{$key}))
+    {
+        @lu = split " ", $groupdisk{$key};
+        while (defined($d = pop(@lu)))
+        {
+            $e = $encl{$d};
+            $ddd = $disk{$d};
+            $RGdisktable{$value} = "$e" . "_" . "$ddd" . " " .  $RGdisktable{$value};
+        }
+    }
+}
+# Build the storage group member list
+my $sgkey = $storagegroup{$SGID};
+my %sgmemberlist;
+if (defined($storagegroupmember{$sgkey}))
+{
+    @lu = split " ", $storagegroupmember{$sgkey};
+    while (defined($dd = pop(@lu)))
+    {
+        $vlu = $sgmember{$dd};
+        if (defined($dlu{$dd}))
+        {
+            $lun = $dlu{$dd};
+            $sgmemberlist{$vlu} = $lun;
+        }
+    }
+}
+while ( ($key, $value) = each %filesystem)
+{
+    ($lun,$fsid) = split("=", $value);
+    $ty = $type{$lun};
+    push(@volumes, $lun);
+    while (defined($lun = pop(@volumes)))
+    {
+    $ty  = $type{$lun};
+    if ($ty =~ /disk/)
+    {
+        if (defined($sliceB1{$lun}))
+        {
+            $start = $sliceB1{$lun};
+            $end = $sliceE1{$lun};
+            push(@dartdisks, $ddisk{$lun} . " " . "$start" . " " .  "$end");
+        }
+        else
+        {
+            push(@dartdisks, $ddisk{$lun});
+        }
+    }
+    if ($ty =~ /hyper/)
+    {
+        $hyperlist = $hypermember[$lun];
+            @hypermem  = split " ", $hyperlist;
+        if (defined($sliceB1{$lun}))
+        {
+            $ssize = $sliceB1{$lun};
+            $esize = $ssize + $sliceE1{$lun};
+        }
+            while (defined($el = pop(@hypermem)))
+            {
+            push(@volumes, $el);
+        if (defined($sliceB1{$lun}))
+        {
+                    if ($ssize != 0 && $ssize < $volsize{$el})
+            {
+                $sliceB1{$el} = $ssize;
+            if ($esize < $volsize{$el})
+            {
+                $sliceE1{$el} = $sliceE1{$lun};
+            }
+            else
+            {
+                $sliceE1{$el} = $volsize{$el} - $ssize;
+            }
+            }
+            else
+            {
+                if ($esize != 0 && $esize < $volsize{$el})
+                {
+                    $sliceB1{$el} = 0;
+                $sliceE1{$el} = $esize;
+                }
+                else
+            {
+            if ($esize != 0 && $ssize == 0)
+                {
+                    $sliceB1{$el} = 0;
+                $sliceE1{$el} = $volsize{$el};
+                    }
+                }
+            }
+        }
+        $ssize -= $volsize{$el};
+        if ($ssize < 0)
+        {
+            $ssize = 0;
+        }
+        $esize -= $volsize{$el};
+        if ($esize < 0)
+        {
+            $esize = 0;
+        }
+        }
+    }
+    if ($ty =~ /slice/)
+    {
+        push(@volumes, $slice{$lun});
+        if (defined($sliceB1{$lun}))
+        {
+            $sliceB1{$slice{$lun}} = $sliceB{$lun} + $sliceB1{$lun};
+            $sliceE1{$slice{$lun}} = $sliceE1{$lun};
+        }
+        else
+        {
+            $sliceB1{$slice{$lun}} = $sliceB{$lun};
+            $sliceE1{$slice{$lun}} = $sliceE{$lun};
+        }
+    }
+    if ($ty =~ /stripe/)
+    {
+        $stripelist = $stripemember[$lun];
+            @stripemem  = split " ", $stripelist;
+            while (defined($el = pop(@stripemem)))
+            {
+            push(@volumes, $el);
+            if (defined($sliceB1{$lun}))
+            {
+                $sliceB1{$el} = $sliceB1{$lun};
+                $sliceE1{$el} = $sliceE1{$lun};
+            }
+        }
+    }
+    }
+
+    print OUTFILE "File system mounted at $key (fsid: $fsid):\n";
+    while (defined( $mydisk = pop(@dartdisks)))
+    {
+        @listdisk = split " ", $mydisk;
+        $diskindex = shift @listdisk;
+        $begin = shift @listdisk;
+        $end = shift @listdisk;
+        if (!defined($begin))
+        {
+            $begin = 0;
+        }
+        if (!defined($end))
+        {
+            $end = $volsize{$diskindex};
+        }
+        $end = $begin + $end;
+        $cwhere = index($diskindex, "c");
+        $twhere = index($diskindex, "t");
+        $lwhere = index($diskindex, "l");
+        $controller = substr($diskindex, $cwhere+1, $twhere-$cwhere-1);
+        $target = substr($diskindex, $twhere+1, $lwhere-$twhere-1);
+        $lunn = substr($diskindex, $lwhere+1);
+        $index = $controller * 256 + $target * 16 + $lunn;
+        $flu = $sgmemberlist{$index};
+        $rg = $LURGtable{$flu};
+        if (defined($rg))
+        {
+            $ddd = $RGdisktable{$rg};
+            print OUTFILE " RG $rg $ddd : FLU $flu from $begin to $end\n";
+        }
+        else
+        {
+            $rg = "1000:";
+            $ddd = $RGdisktable{$rg};
+            print OUTFILE " RG 1000 : $ddd : FLU $flu\n";
+        }
+    }
+}
+
+
+print OUTFILE "\n\n\n";
+
+
+}
+
+

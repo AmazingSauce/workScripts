@@ -1,0 +1,435 @@
+#! /bin/sh
+# set -x
+#
+# server_tcpdump looping script
+# Version 2.2p - for pattern matching support with server log
+# Fixed symbolic to be create at /nas/sbin/server_tcpdump - v2.0 2008-10-02 GW
+# added and fixed check for Virutal Interfaces - v2.0 2008-10-02 GW
+# add -host filter host - v2.1 2008-12-18 GW
+# added -p option for matching the pattern and stop the tcpdump when a match found in server_log - v2.2p
+
+usage() {
+    echo "Version 2.2p 2008-12-18 EMC GW"
+    echo ""
+    echo "usage: $0 <movername> -start <interface> "
+    echo "           -w <dir-to-store-files> -t <max_file_size>  "
+    echo "           [-n <num_of_files>] [-s <snaplength>] [-l <logfile>] "
+    echo "	     [-u <update_frequency> [-host <filter_host_ip>] [-q]"
+    echo "	     [-p <pattern>]"
+    echo ""
+    echo "     Where:"
+    echo "       <dir-to-store-files> is a path relative to the DM rootfs"
+    echo "       <max_file_size> is the target maximum size of each file in KiB"
+    echo "       <num_of_files> is the maximum number of files to keep before"
+    echo "           wrapping (default is 10)"
+    echo "       <snaplength> is the number of bytes in each packet to capture"
+    echo "           default is full frame.  (Do NOT choose smaller than 256)"
+    echo "       <logfile> is a file on the CS to output times of each capture file"
+    echo "           (will capture both CS and DM times, which can be handy for matching"
+    echo "           up log files)"
+    echo "       <update_frequency> is the number of ticks between status updates."
+    echo "                          (One tick is approximately 1 second.  Default is 60)"
+    echo "       <filter_host_ip> is network traffic we are watching to capture"
+    echo "       <pattern> is the pattern to be matched from server log" #2.2p support
+    echo "                 and stop the trace once the pattern is found"
+    echo "                 The grep regular expressions can be used"
+    echo "                 The frequency of server log checking can be adjusted with -u paramter"
+    echo "                 The default value for -u is 60, so server log gets checked every ~60 seconds"
+exit 1
+}
+
+invalid_server () {
+    echo "Error: Unknown server specified."
+    exit 1
+}
+
+invalid_arg () {
+    echo "Error: Invalid argument specified."
+    exit 1
+}
+# add 2008-10-02
+check_interface() {
+# commented out the following line as i am not sure why it is there
+	
+#changed from server_netstat $SERVER -i to server_ifconfig $SERVER -a
+	/nas/bin/server_ifconfig $SERVER -a
+#changed from server_netstat $SERVER -i	server_ifconfig $SERVER -a
+	tempvar=`/nas/bin/server_ifconfig $SERVER -a | /bin/egrep "^$1"`
+	if [ $? -eq 0 ]; then
+		return 0
+	else
+# commented out the following line as i am not sure why it is there
+                /nas/bin/server_sysconfig $SERVER -v
+                tempvar=`/nas/bin/server_sysconfig $SERVER -v | /bin/egrep "^$1"`
+                if [ $? -eq 0 ]; then
+		     return 0
+                else
+	             return 1
+                fi
+	fi
+}
+
+check_dm_path() {
+	tempvar=`$NAS_DB/bin/.server_config $SERVER -v "ls -al $1" | /bin/egrep "^drw"`
+	if [ $? -eq 0 ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+parse_args() {
+
+    # check for -h only
+    if [ "$1" == "-h" ]; then
+        usage
+    fi
+    
+    # check for -v only
+    if [ "$1" == "-v" ]; then
+        usage
+    fi
+
+    # assume first arg is the server
+    SERVER="$1"
+    shift 1
+
+    # check for valid server
+    slot=`$NAS_DB/bin/nas_server -i $SERVER | /bin/egrep "^slot "`
+    if [ "$slot" = "" ]; then
+        invalid_server
+    fi
+
+    while( true )
+    do
+	if [ $# -eq 0 ]; then
+	    break;
+	fi
+	case $1 in
+
+	    "-h" )
+                usage
+		;;
+
+            "-host" )
+		if [[ -n $2 ]]; then
+		        # Filter host add 2008-12-18
+			F_HOST="-host $2"
+                fi
+		shift 2
+		;;
+
+	    "-s" )
+		if [[ -n $2 ]]; then
+			if [[ $2 -ge 60 && $2 -le 9016 ]]; then
+				SNAPLEN="$2"
+			else
+				echo "Error: Snaplength must be between 60 and 9016 bytes"
+				exit 1
+			fi
+		else
+			echo "Error: No snaplength specified"
+			exit 1
+		fi
+		shift 2
+		;;
+
+	    "-start" )
+		
+#was able to edited the server_netstat command to server_ifconfig to find the interface, uses interface found by server_ifconfig $SERVER -a
+		if [[ -n $2 ]]; then
+			check_interface $2
+			ret_val=$?
+			if [ $ret_val -eq 0 ]; then
+				INTERFACE="$2"
+			else
+				echo "Error: Invalid interface name: $2"
+				exit 1
+			fi
+		else
+			echo "Error: No interface name specified"
+			exit 1
+		fi
+            	shift 2
+            ;;
+
+	    "-l" )
+		if [ "$2" != "" ]; then
+			tempvar=`touch $2`
+			ret_val=$?
+			if [ $ret_val -eq 0 ]; then
+				LOGFILE="$2"
+			else
+				echo "Error:  Cannot write to file $2"
+				exit 1
+			fi
+		else
+			echo "Error: No log file name specified"
+			exit 1
+		fi
+		shift 2
+		;;
+
+	    "-t" )
+		if [ "$2" != "" ]; then
+			if [[ $2 -gt 100 && $2 -le 1000000 ]]; then
+				THRESH="$2"
+			else
+				echo "Error: Invalid threshhold size - must be between 100 and 1000000 KiBytes"
+				exit 1
+			fi
+		else
+			echo "Error: No file threshhold specified"
+			exit 1
+		fi
+		shift 2
+		;;
+
+	    "-n" )
+		if [ "$2" != "" ]; then
+			if [[ $2 -ge 2 && $2 -le 1000 ]]; then
+				NUMLOGS="$2"
+			else
+				echo "Error:  Must specify between 2 and 1000 files"
+				exit 1
+			fi
+		else
+			echo "Error: No number of files specified"
+			exit 1
+		fi
+		shift 2
+		;;
+
+	    "-w" )
+
+		if [ "$2" != "" ]; then
+			check_dm_path $2
+                        ret_val=$?
+                        if [ $ret_val -eq 0 ]; then
+				DIR="$2"
+			else
+				echo "Error: Invalid path on DM - $2"
+                                echo "If this is a new clean directory,"
+                                echo "Try mkdir $2/tcpdump.dir" 
+				exit 1
+			fi
+		else
+			echo "Error: No pathname specified"
+			exit 1
+		fi
+		shift 2
+		;;
+
+# Added for 2.2p support
+	    "-p" )
+
+		if [ "$2" != "" ]; then
+                        PATTERN="$2"
+                else
+                        echo "Error: No pattern specified"
+                        exit 1
+                fi
+		shift 2
+                ;;
+
+
+	    "-u" )
+		if [ "$2" != "" ]; then
+			if [[ $2 -ge 1 && $2 -le 150 ]]; then
+				UPDATE_TICKS="$2"
+			else
+				echo "Error: Invalid # of ticks (must be between 1 and 150)"
+			exit 1
+			fi
+		else
+			echo "Error: No ticks count specified"
+			exit 1
+		
+#I believe the script gets down to here now but triggers the invalid_arg, not sure why yet		
+		fi
+		shift 2
+		;;
+	    "-q" )
+		VERBOSE=0
+		shift 1
+		;;
+
+	    * )
+		invalid_arg ;
+	esac
+    done
+
+# Check that we got all the required arguments
+
+if [[ -z $INTERFACE ]]; then
+	echo "Error: -start option not specified"
+	exit 1
+fi
+if [[ -z $THRESH ]]; then
+	echo "Error: -t option not specified"
+	exit 1
+fi
+if [[ -z $DIR ]]; then
+	echo "Error: -w option not specified"
+	exit 1
+fi
+
+}
+
+
+check_tcpdump() {
+	# Create server_tcpdump if it's not already there
+	if [ ! -f $NAS_DB/sbin/server_tcpdump ]; then
+		ln -s /nas/bin/server_mgr /nas/sbin/server_tcpdump
+	fi
+
+	# Check to see if another instance is already running
+	ret=`$NAS_DB/sbin/server_tcpdump $SERVER -display | /bin/egrep $INTERFACE`
+	if [ $? -eq 0 ]; then
+		echo "Found that server_tcpdump on $INTERFACE is currently running."
+		echo "Attemting to stop the current capture and start a new one."
+		$NAS_DB/sbin/server_tcpdump $SERVER -stop $INTERFACE | /bin/egrep "stopped" 2>&1
+		if [ $? -ne 0 ]; then
+			echo "Could not stop current capture"
+			exit 1
+		fi
+		# Necessary pause to avoid overrunning commands
+		sleep 2
+	fi
+
+}
+
+check_pattern() {
+# Added for 2.2p support
+# Check the pattern mentioned in the server log. 
+# It also need to make sure that the pattern found is a new one and not an old.
+
+	PATTERN_FOUND=`$NAS_DB/bin/server_log $SERVER -a | grep  -e '^[0-9]\{10\}' | grep -e "$PATTERN" |tail -1`
+	END_TIME=`echo "$PATTERN_FOUND" | cut -f1 -d:`
+	if [ -n "$END_TIME" ]; then
+		if [ "$END_TIME" -le "$START_TIME" ]; then
+			PATTERN_FOUND=""
+		fi
+	else
+		PATTERN_FOUND=""
+	fi
+}
+
+capture_loop() {
+
+# Since we only check to see if we've written more than the max size every few seconds,
+# we under-estimate the file size that we need to have exceeded before wrapping by roughly
+# 10%
+
+CHECK_SIZE=$(( ($THRESH*100) / 110))
+loop=1
+dumpsize=0
+TICKS=0
+# START_TIME is Added for 2.2p support
+START_TIME=`$NAS_DB/bin/server_log $SERVER -a | grep -e '^[0-9]\{10\}' |tail -1 | cut -f1 -d:`
+
+if [[ $VERBOSE = 1 ]]; then
+	echo "1ST FILE: tcpdump.$INTERFACE-$loop  `date +'%D %T'`  bytes written: ${dumpsize}KB"
+fi
+
+while true
+do
+	while [ $loop -le $NUMLOGS ]
+	do
+		if [[ $LOGFILE != "" ]]; then
+			echo "$server:$DIR/tcpdump.$INTERFACE-$loop::CS time:" `date`::DM time: `server_date $SERVER` >> $LOGFILE
+		fi
+
+		$NAS_DB/sbin/server_tcpdump $SERVER -start $INTERFACE -w \
+		"$DIR"/tcpdump."$INTERFACE"-"$loop" -s $SNAPLEN ${F_HOST} > /dev/null 2>&1
+		while [ $dumpsize -le $CHECK_SIZE ]
+		do
+			sleep 1
+			tempsize=`$NAS_DB/bin/.server_config $SERVER -v \
+			"ls -al "$DIR"/tcpdump."$INTERFACE"-"$loop"" | /bin/egrep ^- | awk '{print $5}'`
+			dumpsize=$((tempsize/1000))
+			# Print an update every so often
+			if [[ $TICKS = $UPDATE_TICKS ]]; then
+			        if [ "$VERBOSE" -eq "1" ]; then
+					echo "UPDATE:   tcpdump.$INTERFACE-$loop  `date +'%D %T'`  bytes written: ${dumpsize}KB"
+				fi
+				# The following added for 2.2p support
+				if [ -n "$PATTERN" ]; then
+					check_pattern
+					if [ -n "$PATTERN_FOUND" ]; then
+						if [ "$VERBOSE" -eq "1" ]; then
+							echo "FOUND PATTERN: $PATTERN_FOUND stopping tcpdump"
+						fi
+						clean_up
+					fi
+				fi
+				TICKS=0
+
+			fi
+			let "TICKS+=1"
+
+			
+		done
+		$NAS_DB/sbin/server_tcpdump $SERVER -stop $INTERFACE > /dev/null
+		if [[ $VERBOSE = 1 ]]; then
+			echo "FINISHED: tcpdump.$INTERFACE-$loop  `date +'%D %T'`  bytes written: ${dumpsize}KB"
+		fi
+		TICKS=0
+		loop=`expr $loop + 1`
+		dumpsize=0
+		# Necessary pause to avoid overrunning commands
+            usleep 500000
+	done
+	loop=1
+done
+}
+
+clean_up() {
+	echo "Exiting...Please Wait"
+	$NAS_DB/sbin/server_tcpdump $SERVER -stop $INTERFACE > /dev/null
+	exit 0
+}
+
+#
+#-------------------- Main program logic begins here ----------------------
+#
+
+# env initializations
+#
+if [ "$NAS_DB" = "" ]
+then
+    echo "NAS_DB environment not defined"
+    exit 1
+fi
+
+SERVER=""
+SNAPLEN=9000
+INTERFACE=""
+LOGFILE=""
+DIR=""
+THRESH=
+VERBOSE=1
+NUMLOGS=10
+UPDATE_TICKS=60  # Changed the default from 15 to 60 to limit the server log run every 15 seconds to 60 seconds.
+GREP=/bin/egrep
+F_HOST=""
+
+# check and parse args
+#
+if [ $# -lt 1 ]; then
+    usage
+fi
+parse_args "$@"  # Changed from $* to "$@" to take care of the -p param as -p can have more than one words, for v2.2p
+
+
+# If script is aborted in some way (including user presses CTRL-C),
+# catch it, clean up, and exit.
+
+trap 'clean_up' 1 2 3 4 5 6 7 8 9 10 \
+	12 13 15 16 17 19 20 21 22 23 \
+	24 25 26 27 28 29 30 31
+
+check_tcpdump
+capture_loop
+
+

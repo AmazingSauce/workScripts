@@ -1,0 +1,1264 @@
+#!/usr/bin/perl -w
+
+########################################################################
+# Copyright (C) 2013, All Rights Reserved, by
+# EMC Corporation, Hopkinton MA.
+#
+# This software is furnished under a license and may be used and copied
+# only  in  accordance  with  the  terms  of such  license and with the
+# inclusion of the above copyright notice. This software or  any  other
+# copies thereof may not be provided or otherwise made available to any
+# other person. No title to and ownership of  the  software  is  hereby
+# transferred.
+#
+# The information in this software is subject to change without  notice
+# and  should  not be  construed  as  a commitment by EMC Corporation.
+#
+# EMC assumes no responsibility for the use or  reliability of its
+# software on equipment which is not supplied by EMC.
+########################################################################
+
+use warnings;
+use strict;
+
+use Text::ParseWords;
+use File::Basename;
+use Getopt::Long;
+use JSON;
+
+my $SCRIPT_NAME = basename($0);
+my $SCRIPT_ARGS = "@ARGV";
+
+my $LAST_UPDATE_TIME;
+my $CURRENT_TIME;
+my $LAST_HEALTH;
+
+my $hrs_1   = 60 * 60 *  1 * 1000; # milliseconds
+
+GetOptions(
+    'lasthealth=s'      => \$LAST_HEALTH,
+    'lastupdatetime=s'  => \$LAST_UPDATE_TIME,
+    'currenttime=s'     => \$CURRENT_TIME,
+);
+
+my $UEMCLI     = "/usr/bin/uemcli";
+my $UEMCLIARGS = " -noheader -sslPolicy accept ";
+
+my %scriptOutput;
+
+my %hostTable = ();
+my %poolTable = ();
+
+my @objects =
+(
+    {
+        'object' => 'disk',
+    },
+    {
+        'object' => 'poolHost',
+    },
+    {
+        'object' => 'applicationPool',
+    },
+    {
+        'object' => 'pool',
+    },
+    {
+        'object' => 'applicationProductionHost',
+    },
+    {
+        'object' => 'applicationSnapshotHost',
+    },
+    {
+        'object' => 'application',
+    },
+    {
+        'object' => 'hostInitiator',
+    },
+    {
+        'object' => 'host',
+    }
+);
+
+
+##########################################
+# Start #include "includes/headerMap.pl.inc"
+
+#included from headerMap.pl.inc
+
+my %COLUMN_MAP =
+(
+        'ID'                                  => 'localId',
+        'SP'                                  => 'sp',
+        'Role'                                => 'role',
+        'Supported types'                     => 'supportedTypes',
+        'MTU size'                            => 'MTUSize',
+        'Speed'                               => 'speed',
+        'Aggregated port ID'                  => 'aggregatedPortId',
+        'Health state'                        => 'healthState',
+        'Health details'                      => 'healthDetails',
+        'System name'                         => 'systemName',
+        'Platform type'                       => 'platformType',
+        'Product serial number'               => 'productSerialNumber',
+        'Auto failback'                       => 'autoFailback',
+        'Total space'                         => 'totalCapacity',
+        'Model'                               => 'model',
+        'System name'                         => 'name',
+        'IPv4 address'                        => 'mgmtIp',
+        'Port'                                => 'mgmtIpPort',
+        'Time'                                => 'timestamp',
+        'Message'                             => 'message',
+        'Severity'                            => 'severity',
+        'Version'                             => 'version',
+        'Total capacity'                      => 'totalCapacity',
+        'Total current allocation'            => 'totalCurrentAllocation',
+        'Size'                                => 'size',
+        'Size used'                           => 'sizeUsed',
+        'Current allocation'                  => 'currentAllocation',
+        'Remaining space'                     => 'remainingSpace',
+        'Protection size'                     => 'protectionSize',
+        'Maximum protection size'             => 'maximumProtectionSize',
+        'Protection size used'                => 'protectionSizeUsed',
+        'Protection current allocation'       => 'protectionCurrentAllocation',
+        'Total protection size allocation'    => 'totalProtectionSizeAllocation',
+        'Total protection current allocation' => 'totalProtectionCurrentAllocation', 
+        'Total protection size used'          => 'totalProtectionSizeUsed',
+        'Total protection size'               => 'totalProtectionSize',
+        'Maximum size'                        => 'maximumSize',
+        'Enclosure'                           => 'enclosure',
+        'Slot'                                => 'slot',
+        'Name'                                => 'name',
+        'Type'                                => 'type',
+        'Capacity'                            => 'capacity',
+        'User capacity'                       => 'userCapacity',
+        'Pool'                                => 'pool',
+        'Storage pool'                        => 'storagePool',
+        'Current speed'                       => 'currentSpeed',
+        'Maximum speed'                       => 'maximumSpeed',
+        'Part number'                         => 'productPartNo',
+        'Serial number'                       => 'productSerialNo',
+        'Manufacturer'                        => 'manufacturer',
+        'Firmware revision'                   => 'firmwareVersion',
+        'WWN'                                 => 'worldwideName',
+        'Location name'                       => 'locationName',
+        'Rack location'                       => 'rackLocation',
+        'Contact name'                        => 'contactName',
+        'Address 1'                           => 'streetAddress1',
+        'Address 2'                           => 'streetAddress2',
+        'City'                                => 'city',
+        'State'                               => 'state',
+        'Country'                             => 'country',
+        'Postal code'                         => 'zipcode',
+        'Contact email address'               => 'contactEmail',
+        'Contact phone number'                => 'contactPhone',
+        'Comment'                             => 'comment',
+        'Subscription'                        => 'subscription',
+        'Description'                         => 'description',
+        'OS type'                             => 'osType',
+        'Product serial number'               => 'productSerialNo',
+        'Thin provisioning enabled'           => 'thinProvisioningEnabled',
+        'Virtual disk access hosts'           => 'virtualDiskAccessHosts',
+        'Snapshots access hosts'              => 'snapshotsAccessHosts',
+        'Virtual disk access host ISCSI initiators' => 'virtualDiskAccessHostISCSIInitiator',
+        'Snapshots access host ISCSI initiators'    => 'snapshotsAccessHostISCSIInitiator',
+        'LUN ID'                              => 'lunId',
+        'Rotational speed'                    => 'rotationalSpeed',
+        'RAID level'                          => 'raidLevel',
+        'Host'                                => 'host',
+        'IQN'                                 => 'iqn',
+        'Protocol'                            => 'protocol',
+        'Resource'                            => 'resource',
+);
+
+# These filters are applied to the values returned by UEMCLI
+
+my %VALUE_FILTER =
+(
+    'healthState'                      => '\((\d+)\)$',
+    'totalCapacity'                    => '^(\d+).*$',
+    'totalCurrentAllocation'           => '^(\d+).*$',
+    'size'                             => '^(\d+).*$',
+    'sizeUsed'                         => '^(\d+).*$',
+    'currentAllocation'                => '^(\d+).*$',
+    'capacity'                         => '^(\d+).*$',
+    'userCapacity'                     => '^(\d+).*$',
+    'protectionSize'                   => '^(\d+).*$',
+    'protectionSizeUsed'               => '^(\d+).*$',
+    'protectionCurrentAllocation'      => '^(\d+).*$',
+    'remainingSpace'                   => '^(\d+).*$',
+    'totalProtectionCurrentAllocation' => '^(\d+).*$',
+    'totalProtectionSizeAllocation'    => '^(\d+).*$',
+    'totalProtectionSizeUsed'          => '^(\d+).*$',
+    'totalProtectionSize'              => '^(\d+).*$',
+    'totalSpace'                       => '^(\d+).*$',
+    'maximumProtectionSize'            => '^(\d+).*$',
+    'maximumSize'                      => '^(\d+).*$',
+    'subscription'                     => '^(\d+).*$',
+);
+
+# End #include "includes/headerMap.pl.inc"
+##########################################
+
+#-------------------------------------------------------------------------------
+#  Main execution path
+#-------------------------------------------------------------------------------
+
+my $csvPools = "";
+my $csvPoolHosts = "";
+my $csvApplications  = "";
+my $csvApplicationPools  = "";
+my $csvApplicationProductionHosts  = "";
+my $csvApplicationSnapshotHosts  = "";
+my $csvDisks = "";
+my $csvHosts = "";
+my $csvHostInitiators = "";
+
+my $serialNumber = "";
+
+my $cmd  = $UEMCLI . $UEMCLIARGS . "/sys/general show -output csv";
+my ($result, $rc)   = sys($cmd); # sys() from includes/utils.pl.inc
+
+my $aref = parseUemCliCsv($result);
+my $href = shift(@{$aref});
+
+$serialNumber  = $href->{productSerialNo};
+
+if ($serialNumber eq "") {
+   error("Unable to find system serial number");
+}
+
+# if this is the first time we're running
+unless ($LAST_HEALTH && $LAST_UPDATE_TIME)
+{
+    $csvPools = getPools();
+    $csvHostInitiators  = getHostInitiators();
+    ($csvApplications, $csvApplicationPools, $csvApplicationProductionHosts, 
+    $csvApplicationSnapshotHosts, $csvPoolHosts)  = getApplicationsAndHostReferences();
+    $csvDisks  = getDisks();
+    $csvHosts  = getHosts();
+    $objects[0]->{output} = $csvDisks;
+    $objects[1]->{output} = $csvPoolHosts;
+    $objects[2]->{output} = $csvApplicationPools;
+    $objects[3]->{output} = $csvPools;
+    $objects[4]->{output} = $csvApplicationProductionHosts;
+    $objects[5]->{output} = $csvApplicationSnapshotHosts;
+    $objects[6]->{output} = $csvApplications;
+    $objects[7]->{output} = $csvHostInitiators;
+    $objects[8]->{output} = $csvHosts;
+    $scriptOutput{objectOutput} = \@objects;
+    $scriptOutput{timestamp}    = timestamp(); # timestamp() from includes/time.pl.inc
+    $scriptOutput{scriptName}   = $SCRIPT_NAME;
+    $scriptOutput{scriptArgs}   = $SCRIPT_ARGS;
+    print jsonString(\%scriptOutput); # jsonString() from includes/utils.pl.inc
+    exit 0;
+}
+
+if ($LAST_UPDATE_TIME && $CURRENT_TIME)
+{
+	my $currentHealth = getHealthState();
+    # get the unix epoch time (milliseconds since Jan. 1, 1970)
+    my $lastupdatemsecs = tsToEpoch($LAST_UPDATE_TIME); # tsToEpoch() from includes/time.pl.inc
+    my $nowmsecs        = tsToEpoch($CURRENT_TIME); # tsToEpoch() from includes/time.pl.inc
+
+	# if last update time is > 1 hours ago or if the healthSate changed, then collect the data
+	if (($LAST_HEALTH ne $currentHealth ) || (abs($nowmsecs - $lastupdatemsecs) >  $hrs_1))
+    {
+        $csvPools = getPools();
+        $csvHostInitiators  = getHostInitiators();
+        ($csvApplications, $csvApplicationPools, $csvApplicationProductionHosts, 
+         $csvApplicationSnapshotHosts, $csvPoolHosts) = getApplicationsAndHostReferences();
+        $csvDisks  = getDisks();
+        $csvHosts  = getHosts();
+        $objects[0]->{output} = $csvDisks;
+        $objects[1]->{output} = $csvPoolHosts;
+        $objects[2]->{output} = $csvApplicationPools;
+        $objects[3]->{output} = $csvPools;
+        $objects[4]->{output} = $csvApplicationProductionHosts;
+        $objects[5]->{output} = $csvApplicationSnapshotHosts;
+        $objects[6]->{output} = $csvApplications;
+        $objects[7]->{output} = $csvHostInitiators;
+        $objects[8]->{output} = $csvHosts;
+        $scriptOutput{objectOutput} = \@objects;
+        $scriptOutput{timestamp}    = timestamp(); # timestamp() from includes/time.pl.inc
+        $scriptOutput{scriptName}   = $SCRIPT_NAME;
+        $scriptOutput{scriptArgs}   = $SCRIPT_ARGS;
+        print jsonString(\%scriptOutput); # jsonString() from includes/utils.pl.inc
+        exit 0;
+    }
+    else
+    {
+        # nothing to update; too soon 
+        $scriptOutput{objectOutput} = [];
+        $scriptOutput{timestamp}    = timestamp(); # timestamp() from includes/time.pl.inc
+        $scriptOutput{scriptName}   = $SCRIPT_NAME;
+        $scriptOutput{scriptArgs}   = $SCRIPT_ARGS;
+        print jsonString(\%scriptOutput); # jsonString() from includes/utils.pl.inc
+        exit 0;
+    }
+    
+} else {
+    error("at least --currenttime needs to be supplied");
+}
+
+#-------------------------------------------------------------------------------
+#  end of the execution path 
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+#  SUBROUTINES
+#-------------------------------------------------------------------------------
+
+#===  FUNCTION  ================================================================
+#         NAME: getPools
+#      PURPOSE: get all the storage pools 
+#   PARAMETERS: None
+#      RETURNS: reference to a csv array containing the pool data
+#===============================================================================
+sub getPools
+{
+    my @csv = ();
+
+    multiLinePush(\@csv, ( "\"id\","       ,
+         "\"storageSystem\"," ,
+         "\"name\"," ,
+         "\"description\","   ,
+         "\"healthValue\","   ,
+         "\"healthDescription\","   ,
+         "\"raidGroupLevel\","   ,
+         "\"usageType\","   ,
+         "\"applicationType\","   ,
+         "\"sizeFree\","   ,
+         "\"sizeTotal\","   ,
+         "\"sizeUsed\","   ,
+         "\"sizeSubscribed\"") );
+
+    my $headerSize = scalar(@csv);  # check for headers that wrap with multiple array entries
+
+    my $cmd = $UEMCLI . $UEMCLIARGS . "/stor/config/pool show -detail -output csv";
+    my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+
+    if ($rc == 0)
+    {
+        my $aref = parseUemCliCsv($result); # parseUemCliCsv() from includes/utils.pl.inc
+        foreach (@{$aref})
+        {
+           my $localId = $_->{localId};
+           next if ( ! defined($localId) || $localId eq "");
+
+           my $ID = "$serialNumber:$localId";
+           my $name = $_->{name} // "";
+           if ($name eq "capacity") {
+              $name = "Capacity Pool";
+           } elsif ($name eq "performance") {
+              $name = "Performance Pool";
+           } elsif ($name eq "extreme_performance") {
+              $name = "Extreme Performance Pool";
+           }
+           my $description = $_->{description} // "";
+           my $totalSpace =  $_->{totalCapacity} // "";
+           my $raidLevel = $_->{raidLevel} // "";
+           my $healthValue = $_->{healthState} // 0;
+           $healthValue = getHealthValue($healthValue);
+           my $healthDescription = $_->{healthDetails} // "";
+           $healthDescription =~ s/\//&#47/g;
+           my $remainingSpace = $_->{remainingSpace} // 0;
+           my $currentAllocation = $_->{currentAllocation} // 0;
+           my $subscription = $_->{subscription} // 0;
+
+           # convert raidLevel to model values
+           if ($raidLevel eq "1") {
+              # change to RAID1 once model supports
+              # $raidLevel = "12";
+           } elsif ($raidLevel eq "5") {
+              $raidLevel = "1";
+           } elsif ($raidLevel eq "6" ) {
+              $raidLevel = "10";
+           } elsif ($raidLevel eq "10" ) {
+              $raidLevel = "7";
+           }
+
+           if ($totalSpace > 0) {
+              multiLinePush(\@csv, ( "\"$ID\"," ,
+                  "\"$serialNumber\"," ,
+                  "\"$name\"," ,
+                  "\"$description\"," ,
+                  "\"$healthValue\","   ,
+                  "\"$healthDescription\","   ,
+                  "\"$raidLevel\","   ,
+                  "\"1\","   ,
+                  "\"1\","   ,
+                  "\"$remainingSpace\","   ,
+                  "\"$totalSpace\","   ,
+                  "\"$currentAllocation\","   ,
+                  "\"$subscription\"") );
+
+                  $poolTable{$ID} = $name;
+           }
+        }
+    }
+   
+    (scalar(@csv) > $headerSize) ? return \@csv : return;
+}
+
+#===  FUNCTION  ================================================================
+#         NAME: getApplicationsAndHostReferences
+#      PURPOSE: get a list of all applications (exchange, hyperV, vmware, generic ISCI,
+#               shared folders) and hostInitiators in the storage system
+#   PARAMETERS: None 
+#      RETURNS: reference to three csv arrays containing application, host, and hostInitiator data
+#                   
+#===============================================================================
+sub getApplicationsAndHostReferences
+{
+    my @applicationCsv = ();
+    multiLinePush(\@applicationCsv, ( "\"id\","       ,
+         "\"storageSystem\"," ,
+         "\"name\"," ,
+         "\"description\","   ,
+         "\"healthValue\","   ,
+         "\"healthDescription\","   ,
+         "\"type\","   ,
+         "\"thinEnabled\","   ,
+         "\"protocol\","   ,
+         "\"lun\","   ,
+         "\"protectionSizeFree\","   ,
+         "\"protectionSizeTotal\","   ,
+         "\"protectionSizeUsed\","   ,
+         "\"protectionSizeAllocated\","   ,
+         "\"sizeFree\","   ,
+         "\"sizeTotal\","   ,
+         "\"sizeUsed\","   ,
+         "\"sizeAllocated\"") );
+
+    my $headerSize = scalar(@applicationCsv);  # check for headers that wrap with multiple array entries
+    
+    my @applicationPoolCsv = ();
+    multiLinePush(\@applicationPoolCsv, ( "\"id\","       ,
+         "\"application\","   ,
+         "\"pool\"") );
+    
+    my @applicationProductionHostCsv = ();
+    multiLinePush(\@applicationProductionHostCsv, ( "\"id\","       ,
+         "\"application\","   ,
+         "\"host\"") );
+    
+    my @applicationSnapshotHostCsv = ();
+    multiLinePush(\@applicationSnapshotHostCsv, ( "\"id\","       ,
+         "\"application\","   ,
+         "\"host\"") );
+
+    my @poolHostCsv = ();
+    multiLinePush(\@poolHostCsv, ( "\"pool\","   ,
+         "\"host\"") );
+
+    my %cmds = ( 'EXCHANGE2007','/stor/prov/exchange/2007/res show -detail -output csv',
+                 'EXCHANGE2010','/stor/prov/exchange/2010/res show -detail -output csv',
+                 'VMWARE_VMFS','/stor/prov/vmware/vmfs show -detail -output csv',
+                 'VMWARE_NFS','/stor/prov/vmware/nfs show -detail -output csv',
+                 'HYPERV','/stor/prov/hyperv/res show -detail -output csv',
+                 'SF','/stor/prov/sf/res show -detail -output csv',
+                 'ISCSI','/stor/prov/iscsi/res show -detail -output csv' );
+
+    my $vDiskCmd = '/stor/prov/iscsi/vdisk show -detail -output csv';
+    my %vDiskPoolMap = ();
+
+    while (my ($appType,$appCmd) = each (%cmds))
+    {
+        my $cmd = $UEMCLI . $UEMCLIARGS . $appCmd;
+        my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+        
+        if ($rc == 0)
+        {
+            my %appTypeMap = (
+              SF => "1",
+              ISCSI => "2",
+              VMWARE_VMFS => "3",
+              VMWARE_NFS => "4",
+              HYPERV => "5",
+              EXCHANGE2007 => "6",
+              EXCHANGE2010 => "7",
+            );
+
+            if ( $appType eq "ISCSI") 
+            {
+               # get vdisks for the pool mapping for Generic ISCSI Storage
+               my $cmd = $UEMCLI . $UEMCLIARGS . $vDiskCmd;
+               my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+               if ($rc == 0)
+               {
+                  my $aref = parseUemCliCsv($result);
+                  foreach (@{$aref})
+                  {
+                    next if (! defined($_->{resource}) || ! defined($_->{storagePool}));
+                    my $resource = $_->{resource};
+                    my $pool = $_->{storagePool};
+                    my $appId = "$serialNumber:$resource";
+
+                    # set pool mapping here since separate call is used to collect Generic ISCSI Storage pools
+                    my $poolId = setApplicationPool(\@applicationPoolCsv, $appId, $appType, $_);
+
+                    if ( defined($vDiskPoolMap{$appId}->{poolList}) ) { 
+                        my $temp = $vDiskPoolMap{$appId}->{poolList};
+                        $vDiskPoolMap{$appId}->{poolList} = "$temp,$poolId";
+                    } else {
+                        $vDiskPoolMap{$appId}->{poolList} = "$poolId";
+                    }
+                  }
+               }
+            }
+
+            my $aref = parseUemCliCsv($result); # parseUemCliCsv() from includes/utils.pl.inc
+            foreach (@{$aref})
+            {
+              my $localId = $_->{localId};
+              next if ( ! defined($localId) || $localId eq "");
+              my $appId = "$serialNumber:$localId";
+              my $name = $_->{name} // "";
+              my $thinEnabled = "false";
+              my $protocol = "";
+              my $type = $appTypeMap{$appType};
+              my $description = $_->{description} // "";
+              my $lun = $_->{lunId} // 0;
+              my $healthValue = $_->{healthState} // 0;
+              $healthValue = getHealthValue($healthValue);
+              my $healthDescription = $_->{healthDetails} // "";
+              $healthDescription =~ s/\//&#47/g;
+
+              my ($sizeTotal, $sizeFree, $sizeUsed, $sizeAllocated, $protectionSizeTotal, 
+                  $protectionSizeFree, $protectionSizeUsed, $protectionSizeAllocated) = processApplicationSize($appType, $_);
+
+
+              if ( (($appType eq "ISCSI") && ($sizeAllocated < $sizeTotal)) || 
+                   (defined($_->{thinProvisioningEnabled}) && $_->{thinProvisioningEnabled} eq "yes") ) 
+              {
+                 # generic ISCSI is the only application that does not report thin provisioning on the application
+                 # this is computed based on the size data
+                 $thinEnabled = "true";
+              } 
+
+              if ($appType eq "SF")
+              { 
+                  $protocol = $_->{protocol} // "";
+                  $protocol =~ tr/[a-z]/[A-Z]/;
+              }
+
+              multiLinePush(\@applicationCsv, ( "\"$appId\","       ,
+                   "\"$serialNumber\"," ,
+                   "\"$name\"," ,
+                   "\"$description\"," ,
+                   "\"$healthValue\","   ,
+                   "\"$healthDescription\","   ,
+                   "\"$type\","   ,
+                   "\"$thinEnabled\","   ,
+                   "\"$protocol\","   ,
+                   "\"$lun\","   ,
+                   "\"$protectionSizeFree\","   ,
+                   "\"$protectionSizeTotal\","   ,
+                   "\"$protectionSizeUsed\","   ,
+                   "\"$protectionSizeAllocated\","   ,
+                   "\"$sizeFree\","   ,
+                   "\"$sizeTotal\","   ,
+                   "\"$sizeUsed\","   ,
+                   "\"$sizeAllocated\"") );
+
+              my $pool;
+              if ($appType eq "ISCSI")
+              {
+                 # pool mapping already set during VDisk call 
+                 $pool = $vDiskPoolMap{$appId}->{poolList};
+              } else {
+                 $pool = setApplicationPool(\@applicationPoolCsv, $appId, $appType, $_);
+              }
+             
+              setApplicationProductionHosts(\@applicationProductionHostCsv, \@poolHostCsv, $appId, $appType, $pool, $healthValue, $healthDescription,  $_);
+              setApplicationSnapshotHosts(\@applicationSnapshotHostCsv, \@poolHostCsv, $appId, $appType, $pool, $healthValue, $healthDescription, $_);
+            
+            }
+        }
+    }
+
+    if (scalar(@applicationCsv) <= $headerSize) {
+       # if no application data, return nothing
+       return;
+    }
+
+    return ( \@applicationCsv,
+             (scalar(@applicationPoolCsv) > 1) ? \@applicationPoolCsv : undef ,
+             (scalar(@applicationProductionHostCsv) > 1) ? \@applicationProductionHostCsv : undef,
+             (scalar(@applicationSnapshotHostCsv) > 1) ? \@applicationSnapshotHostCsv : undef,
+             (scalar(@poolHostCsv) > 1) ? \@poolHostCsv : undef );
+}
+
+#===  FUNCTION  ================================================================
+#         NAME: getDisks
+#      PURPOSE: get the list of all disks 
+#   PARAMETERS: None
+#      RETURNS: reference to a hash 
+#===============================================================================
+sub getDisks
+{   
+    my @csv = ();
+
+    multiLinePush(\@csv, ( "\"id\"," ,
+         "\"storageSystem\"," ,
+         "\"name\"," ,
+         "\"healthValue\","   ,
+         "\"healthDescription\","   ,
+         "\"size\","   ,
+         "\"rawSize\","   ,
+         "\"driveType\","   ,
+         "\"rpm\","   ,
+         "\"pool\"") );
+
+    my $cmd = $UEMCLI . $UEMCLIARGS . "/env/disk show -detail -output csv";
+    my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+
+    if ($rc == 0)
+    {
+        my %driveTypeMap = (
+            UNDEFINED => "0",
+            REMOVED => "0",
+            SAS => "1",
+            SASSED => "1",
+            NL_SAS => "2",
+            NLSASSED => "2",
+            SAS_FLASH => "3",
+            SAS_FLASH_VP => "4",
+            EFD => "5",
+        );
+
+        my $aref = parseUemCliCsv($result); # parseUemCliCsv() from includes/utils.pl.inc
+        foreach (@{$aref})
+        {
+           my $localId = $_->{localId};
+           next if ( ! defined($localId) || $localId eq "");
+           my $ID = "$serialNumber:$localId";
+           my $name = $_->{name} // "";
+           my $localPool = $_->{pool};
+           my $pool;
+           if ($localPool ne "Unsupported") {
+              $pool = findPoolId($localPool);
+           my $type = $_->{type};
+           $type =~ s/-//g;
+           $type =~ s/\s+//g;
+           $type =~ tr/[a-z]/[A-Z]/;
+           my $driveType = $driveTypeMap{$type};
+           if (!defined $driveType) {
+              $driveType = "0";
+           }
+           my $rotationalSpeed = $_->{rotationalSpeed} // 0;
+           $rotationalSpeed =~ s/rpm//;
+           my $healthValue = $_->{healthState} // 0;
+           $healthValue = getHealthValue($healthValue);
+           my $healthDescription = $_->{healthDetails} // "";
+           $healthDescription =~ s/\//&#47/g;
+           my $userCapacity = $_->{userCapacity} // 0;
+           my $capacity = $_->{capacity} // 0;
+
+           multiLinePush(\@csv, ( "\"$ID\"," ,
+               "\"$serialNumber\"," ,
+               "\"$name\","   ,
+               "\"$healthValue\","   ,
+               "\"$healthDescription\","   ,
+               "\"$userCapacity\","   ,
+               "\"$capacity\","   ,
+               "\"$driveType\","   ,
+               "\"$rotationalSpeed\","   ,
+               "\"$pool\"") );
+           }
+        }
+    }
+   
+    (scalar(@csv) > 1) ? return \@csv : return;
+    
+}
+
+
+##########################################
+# Start #include "includes/getHealthState.pl.inc"
+
+#===  FUNCTION  ================================================================
+#         NAME: getHealthState
+#      PURPOSE: get the health value of the system
+#   PARAMETERS: None
+#      RETURNS: scalar containing the health state value i.e. 5, 7, etc...
+#===============================================================================
+sub getHealthState
+{
+    my $cmd  = $UEMCLI . $UEMCLIARGS . "/sys/general show -output csv";
+    my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+    
+    if ($rc == 0)
+    {
+        my $aref = parseUemCliCsv($result);
+        my $href = shift(@{$aref});
+        return $href->{healthState}; # trim() from includes/utils.pl.inc
+    }
+    else
+    {
+        error("Unable to get health state");
+    }
+}
+# End #include "includes/getHealthState.pl.inc"
+##########################################
+  
+#===  FUNCTION  ================================================================
+#         NAME: getHostInitiators
+#      PURPOSE: get the list of all host initiators 
+#   PARAMETERS: None
+#      RETURNS: reference to a hash 
+#===============================================================================
+sub getHostInitiators
+{   
+    my @csv = ();
+    multiLinePush(\@csv, ( "\"id\","       ,
+         "\"storageSystem\"," ,
+         "\"type\","   ,
+         "\"initiatorId\","   ,
+         "\"parentHost\"") );
+
+    my $cmd = $UEMCLI . $UEMCLIARGS . "/remote/iscsi/initiator show -detail -output csv";
+    my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+
+    if ($rc == 0)
+    {
+        my $aref = parseUemCliCsv($result); # parseUemCliCsv() from includes/utils.pl.inc
+        foreach (@{$aref})
+        {
+           my $type = "2";
+           my $iqn = $_->{iqn};
+           # if either the iqn or host is not set; skip and process next entry
+           next if ( ! defined($iqn) || $iqn eq "");
+           my $host = $_->{host};
+           next if ( ! defined($host) || $host eq "");
+           my $parentHost = "$serialNumber:$host";
+           my $ID = "$parentHost:$iqn";
+           
+           multiLinePush(\@csv, ( "\"$ID\"," ,
+                "\"$serialNumber\"," ,
+                "\"$type\","   ,
+                "\"$iqn\","   ,
+                "\"$parentHost\"") );
+
+           # keep track of host cross-references
+           if ( defined ($hostTable{$parentHost}->{initiatorsISCSIKeys}) ) {
+                my $temp = $hostTable{$parentHost}->{initiatorsISCSIKeys};
+                $hostTable{$parentHost}->{initiatorsISCSIKeys} = "$temp,$ID";
+           } else {
+                $hostTable{$parentHost}->{initiatorsISCSIKeys} = "$ID";
+	   }
+        }
+    }
+
+    (scalar(@csv) > 1) ? return \@csv : return;
+}
+
+#===  FUNCTION  ================================================================
+#         NAME: getHosts
+#      PURPOSE: get the host information and cross-reference for each host.
+#   PARAMETERS: None
+#      RETURNS: reference to a hash 
+#===============================================================================
+sub getHosts
+{   
+    my @csv = ();
+
+    multiLinePush(\@csv, ( "\"id\","       ,
+         "\"name\",",
+         "\"description\",",
+         "\"Addresses\"," ,
+         "\"osType\"," ,
+         "\"healthValue\","   ,
+         "\"healthDescription\","   ,
+         "\"applicationsKeys\","   ,
+         "\"poolsKeys\","   ,
+         "\"initiatorsISCSIKeys\"") );
+
+    my $headerSize = scalar(@csv);  # check for headers that wrap with multiple array entries
+
+    my $cmd  = $UEMCLI . $UEMCLIARGS . "/remote/host show -output csv";
+    my ($result, $rc) = sys($cmd); # sys() from includes/utils.pl.inc
+
+    if ($rc == 0)
+    {
+        my $aref = parseUemCliCsv($result); # parseUemCliCsv() from includes/utils.pl.inc
+        foreach (@{$aref})
+        {
+           my $localId = $_->{localId};
+           next if ( ! defined($localId) || $localId eq "");
+           my $hostId = "$serialNumber:$localId";
+           my $name = $_->{name} // "";
+           my $description = $_->{description} // "";
+           my $Addresses = $_->{Address} // "";
+           my $osType = $_->{osType} // "";
+           my $healthValue = defined($hostTable{$hostId}->{healthValue}) ? $hostTable{$hostId}->{healthValue} : 5;
+           my $healthDescription = defined($hostTable{$hostId}->{healthDescription}) ? $hostTable{$hostId}->{healthDescription} : "The component is operating normally.  No action is required.";
+           my $applicationsKeys = $hostTable{$hostId}->{applicationsKeys} // "";
+           my $poolsKeys = $hostTable{$hostId}->{poolsKeys} // "";
+           my $initiatorsISCSIKeys = $hostTable{$hostId}->{initiatorsISCSIKeys} // "";
+    
+           multiLinePush(\@csv, ( "\"$hostId\","       ,
+               "\"$name\","   ,
+               "\"$description\","   ,
+               "\"$Addresses\","   ,
+               "\"$osType\","   ,
+               "\"$healthValue\","   ,
+               "\"$healthDescription\","   ,
+               "\"$applicationsKeys\","   ,
+               "\"$poolsKeys\","   ,
+               "\"$initiatorsISCSIKeys\"") );
+        }
+    }
+
+    (scalar(@csv) > $headerSize) ? return \@csv : return;
+}
+
+#================== Support Functions ========================
+
+sub processApplicationSize()
+{
+    my ($appType, $output) = @_;
+
+    my $sizeTotal = 0;
+    my $sizeFree = 0;
+    my $sizeUsed = 0;
+    my $sizeAllocated = 0;
+    my $protectionSizeTotal = 0;
+    my $protectionSizeFree = 0;
+    my $protectionSizeUsed = 0;
+    my $protectionSizeAllocated = 0;
+
+    if ( ($appType eq "VMWARE_VMFS") || ($appType eq "VMWARE_NFS") || 
+         ($appType eq "HYPERV") || ($appType eq "SF") ) {
+       $sizeTotal = ( defined($output->{size}) ? $output->{size} : 0 ); 
+       $sizeUsed = ( defined($output->{sizeUsed}) ? $output->{sizeUsed} : 0 );
+       $sizeAllocated = ( defined($output->{currentAllocation}) ? $output->{currentAllocation} : 0 );
+       $protectionSizeTotal = ( defined($output->{protectionSize}) ? $output->{protectionSize} : 0 );
+       $protectionSizeUsed = ( defined($output->{protectionSizeUsed}) ? $output->{protectionSizeUsed} : 0 ); 
+       $protectionSizeAllocated = ( defined($output->{protectionCurrentAllocation}) ? $output->{protectionCurrentAllocation} : 0 );
+    }
+
+    if ( ($appType eq "ISCSI") || ($appType eq "EXCHANGE2007") || ($appType eq "EXCHANGE2010") ) {
+       $sizeTotal = ( defined($output->{totalCapacity}) ? $output->{totalCapacity} : 0 ); 
+       $sizeUsed = ( defined($output->{totalCapacity}) ? $output->{totalCapacity} : 0 ); 
+       $sizeAllocated = ( defined($output->{totalCurrentAllocation}) ? $output->{totalCurrentAllocation} : 0 );
+       $protectionSizeTotal = ( defined($output->{totalProtectionSize}) ? $output->{totalProtectionSize} : 0 );
+       $protectionSizeUsed = ( defined($output->{totalProtectionSizeUsed}) ? $output->{totalProtectionSizeUsed} : 0 ); 
+    }
+
+    if ($appType eq "ISCSI") {
+       $protectionSizeAllocated = ( defined($output->{totalProtectionSizeAllocation}) ? $output->{totalProtectionSizeAllocation} : 0 ); 
+    }
+
+    if ( ($appType eq "EXCHANGE2007") || ($appType eq "EXCHANGE2010") ) {
+       $protectionSizeAllocated = ( defined($output->{totalProtectionCurrentAllocation}) ? $output->{totalProtectionCurrentAllocation} : 0 ); 
+    }
+
+    if ($protectionSizeTotal >= $protectionSizeUsed) {
+       $protectionSizeFree = $protectionSizeTotal - $protectionSizeUsed;
+    } 
+    if ($sizeTotal >= $sizeUsed) {
+       $sizeFree = $sizeTotal - $sizeUsed;
+    }
+
+    return ($sizeTotal, $sizeFree, $sizeUsed, $sizeAllocated, $protectionSizeTotal, $protectionSizeFree, 
+            $protectionSizeUsed, $protectionSizeAllocated);
+}
+
+sub setApplicationPool()
+{
+    my ($table, $appId, $appType, $output) = @_;
+
+    my $pool;
+    my $poolId;
+
+    if ( ($appType eq "VMWARE_VMFS") || ($appType eq "VMWARE_NFS") || 
+         ($appType eq "HYPERV") || ($appType eq "SF") || 
+         ($appType eq "ISCSI") ) {
+       $pool = $output->{storagePool};
+    }
+
+    if ( ($appType eq "EXCHANGE2007") || ($appType eq "EXCHANGE2010") ) {
+       $pool = $output->{pool};
+    }
+
+    $poolId = findPoolId($pool);
+
+    if ( defined($poolId) && $poolId ne "") {
+       my $poolTableId = "$appId:$poolId";
+       multiLinePush(\@{$table}, ( "\"$poolTableId\","       ,
+               "\"$appId\","   ,
+               "\"$poolId\"") );
+    }
+
+    return $poolId;
+}
+
+sub setApplicationProductionHosts()
+{
+    my ($productionHosts, $poolHosts, $appId, $appType, $poolId, $healthValue, $healthDescription, $output) = @_;
+
+    my $hosts = "";
+
+    # skip shared folders and VMWare NFS as they don't have true host relationships
+    if ( ($appType ne "SF") && ($appType ne "VMWARE_NFS") ) {
+
+         if ( ($appType eq "EXCHANGE2007") || ($appType eq "EXCHANGE2010") ||
+              ($appType eq "HYPERV") ) {
+             $hosts = ( defined($output->{virtualDiskAccessHosts}) ? $output->{virtualDiskAccessHosts} : "" );
+         }
+
+         if ( ($appType eq "VMWARE_VMFS") || ($appType eq "ISCSI") ) {
+             $hosts = ( defined($output->{virtualDiskAccessHostISCSIInitiator}) ? 
+                                $output->{virtualDiskAccessHostISCSIInitiator} : "" );
+         }
+
+         if ( $hosts ne "" ) {
+            # remove any IQN values
+            $hosts =~ s/\[([^\[\]]++|(?R))*+\]//g;
+            my @prodHosts = split(",",$hosts);
+
+            foreach (@prodHosts) { 
+                  my $hVal = $_;
+                  inplace_trim($hVal);
+                  my $hostId = "$serialNumber:$hVal";
+                  my $hostTableId = "$appId:$hostId";
+                  multiLinePush(\@{$productionHosts}, ( "\"$hostTableId\","       ,
+                       "\"$appId\","   ,
+                       "\"$hostId\"") );
+
+                  # keep track of host cross-references
+                  setHostApplicationKeys($hostId,$appId);
+                  setApplicationHostHealth($hostId, $healthValue, $healthDescription);
+
+                  # ISCSI Generic is only application to have multiple storage pools
+                  my @poolList = split(",",$poolId);
+                  setHostPoolKeys($hostId,$poolId);
+                  foreach (@poolList) {
+                     my $pool = $_;
+                     inplace_trim($pool);
+                     if ( exists $poolTable{$poolId} ) {
+                        setHostPoolKeys($hostId,$poolId);
+                        multiLinePush(\@{$poolHosts}, ( "\"$poolId\","   ,
+                             "\"$hostId\"") );
+                     }
+                  }
+            }
+         }
+    }
+}
+
+sub setApplicationSnapshotHosts()
+{
+    my ($snapshotHosts, $poolHosts, $appId, $appType, $poolId, $healthValue, $healthDescription, $output) = @_;
+
+    my $hosts = "";
+
+    # skip shared folders and VMWare NFS as they don't have true host relationships
+    if ( ($appType ne "SF") && ($appType ne "VMWARE_NFS") ) {
+
+         if ( ($appType eq "EXCHANGE2007") || ($appType eq "EXCHANGE2010") ||
+              ($appType eq "HYPERV") ) {
+             $hosts = ( defined($output->{snapshotAccessHosts}) ? $output->{snapshotAccessHosts} : "");
+         }
+
+         if ( ($appType eq "VMWARE_VMFS") || ($appType eq "ISCSI") ) {
+             $hosts = ( defined($output->{snapshotsAccessHostISCSIInitiator}) ? 
+                                $output->{snapshotsAccessHostISCSIInitiator} : "");
+         }
+
+         if ( $hosts ne "" ) {
+            # remove any IQN values
+            $hosts =~ s/\[([^\[\]]++|(?R))*+\]//g;
+            my @snapHosts = split(",",$hosts);
+
+            foreach (@snapHosts) { 
+                  my $hVal = $_;
+                  inplace_trim($hVal);
+                  my $hostId = "$serialNumber:$hVal";
+                  my $hostTableId = "$appId:$hostId";
+                  multiLinePush(\@{$snapshotHosts}, ( "\"$hostTableId\","       ,
+                       "\"$appId\","   ,
+                       "\"$hostId\"") );
+
+                  # keep track of host cross-references
+                  setHostApplicationKeys($hostId,$appId);
+                  setApplicationHostHealth($hostId, $healthValue, $healthDescription);
+
+                  # ISCSI Generic is only application to have multiple storage pools
+                  my @poolList = split(",",$poolId);
+                  setHostPoolKeys($hostId,$poolId);
+                  foreach (@poolList) {
+                     my $pool = $_;
+                     inplace_trim($pool);
+                     if ( exists $poolTable{$poolId} ) {
+                        setHostPoolKeys($hostId,$poolId);
+                        multiLinePush(\@{$poolHosts}, ( "\"$poolId\","   ,
+                             "\"$hostId\"") );
+                     }
+                  }
+            }
+         }
+    }
+}
+
+sub setHostPool()
+{
+    my ($poolHosts, $hostId, $poolId, $appType ) = @_;
+
+    if ( exists $poolTable{$poolId} ) {
+       setHostPoolKeys($hostId,$poolId);
+       multiLinePush(\@{$poolHosts}, ( "\"$poolId\","   ,
+            "\"$hostId\"") );
+    }
+}
+
+sub setHostApplicationKeys()
+{
+    my ($host, $appId) = @_;
+
+    if ( defined ($hostTable{$host}->{applicationsKeys}) ) {
+        my $temp = $hostTable{$host}->{applicationsKeys};
+        $hostTable{$host}->{applicationsKeys} = "$temp,$appId";
+    } else {
+        $hostTable{$host}->{applicationsKeys} = "$appId";
+    }
+}
+
+sub setApplicationHostHealth()
+{
+    my ($host, $healthValue, $healthDescription) = @_;
+
+    if ( defined ($hostTable{$host}->{healthValue}) ) {
+        if ( $hostTable{$host}->{healthValue} < $healthValue ) {
+             $hostTable{$host}->{healthValue} = "$healthValue";
+             $hostTable{$host}->{healthDescription} = "$healthDescription";
+        }
+    } else {
+        $hostTable{$host}->{healthValue} = "$healthValue";
+        $hostTable{$host}->{healthDescription} = "$healthDescription";
+    }
+}
+
+sub setHostPoolKeys()
+{
+    my ($host, $poolId) = @_;
+
+    if ( defined ($hostTable{$host}->{poolsKeys}) ) {
+        my $temp = $hostTable{$host}->{poolsKeys};
+        $hostTable{$host}->{poolsKeys} = "$temp,$poolId";
+    } else {
+        $hostTable{$host}->{poolsKeys} = "$poolId";
+    }
+}
+
+sub findPoolId()
+{
+    my $poolName = $_[0];
+
+    inplace_trim($poolName);
+
+    if ($poolName eq "capacity") {
+       $poolName = "Capacity Pool";
+    } elsif ($poolName eq "performance") {
+       $poolName = "Performance Pool";
+    } elsif ($poolName eq "extreme_performance") {
+       $poolName = "Extreme Performance Pool";
+    }
+
+    if ( defined($poolName) && $poolName ne "") {
+       foreach my $key (keys(%poolTable)) {
+          return $key if $poolTable{$key} eq $poolName;
+       }
+    }
+    return "";
+}
+
+sub getHealthValue()
+{
+    # this retrieves just the health enum value
+    my $healthValue = $_[0];
+    $healthValue =~ s/.*\(//g;
+    $healthValue =~ s/\)//g;
+    return $healthValue;
+}
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+#  HELPER SUBROUTINES --- common with other scripts
+#   may put them all in one module and include it on all scripts...
+#-------------------------------------------------------------------------------
+
+
+##########################################
+# Start #include "includes/utils.pl.inc"
+
+#included from utils.pl.inc
+
+use POSIX qw(ceil);
+
+sub parseUemCliCsv
+{
+    my ($csv,$arg_ref) = @_;
+
+    my $column_map = $arg_ref->{colmap}    ? $arg_ref->{colmap}    : \%COLUMN_MAP;
+    my $val_filter = $arg_ref->{valfilter} ? $arg_ref->{valfilter} : \%VALUE_FILTER; 
+
+    my @result;
+
+    # remove the quotes surrounding each column name
+    $csv->[0] =~ s/"//g; 
+    inplace_trim($csv->[0]);
+    
+    # rename the column names according to the map hash
+    my @columns = map { $column_map->{$_} ? $column_map->{$_} : $_ } split(',', $csv->[0]);
+
+    for (my $i = 1; $i <= $#$csv; $i++)
+    {
+        inplace_trim($csv->[$i]);
+        # parse each value in the row taking care of values that may have a ',' in them
+        my @row = quotewords(',',0, $csv->[$i]); 
+        @row = 
+              map
+                 {   # is there a regex defined for this value ? 
+                    ($val_filter->{$columns[$_ - 1]}) ?  
+                     # if regex defined, apply it to the value
+                    ($row[$_ - 1] =~ /$val_filter->{$columns[$_ - 1]}/is) : 
+                     # else return the value as is
+                     $row[$_ - 1] 
+                 } 
+              1 .. scalar(@row);
+        my %hash =
+              map 
+                 {   # map the column name to it's row value
+                     $columns[$_ - 1] => $row[$_ - 1] 
+                 } 
+              1 .. scalar(@row);
+        # push hash { columnName1 => rowValue1, columnName2 => rowValue2, etc } to results
+        push @result, \%hash; 
+    }
+    return \@result;
+}
+
+sub jsonString
+{
+    my ($objRef) = @_;
+    return JSON->new->allow_nonref()->pretty(1)->encode($objRef);
+}
+
+sub trim
+{
+    my $string = shift;
+    if (defined($string))
+    {
+        $string =~ s/^\s+//;
+        $string =~ s/\s+$//;
+        chomp($string);
+    }
+    return $string;
+}
+sub inplace_trim
+{
+    for ($_[0])
+    {
+        s/^\s*//;
+        s/\s*$//;
+    }
+}
+
+sub sys
+{
+    my $cmd    = join(' ',@_);
+    my @result = qx{$cmd};
+    my $status = $? >> 8;
+    return (\@result, $status);
+}
+
+sub multiLinePush {
+    my ($ref, @fields) = @_;
+    my ($entry) = "";
+
+    for (my $i = 0; $i < scalar(@fields); $i++) {
+        my $newField = $fields[$i];
+        my $pendingEntry = $entry . $newField;
+
+        # ensure Papi limit of 512 bytes is not exceeded
+        if (length($newField) >= 128) {
+            push(@{$ref}, $entry . '\\');
+            $entry = "";
+            my $numFields = ceil(length($newField)/128);
+            for (my $v = 0; $v < $numFields; $v++) {
+                my $offset = $v * 127;
+                my $initString = substr($newField, $offset, 128);
+                if (length($initString) == 128) {
+                   push(@{$ref}, $initString . '\\');
+                } else {
+                   $newField = $initString;
+                }
+            }
+        } elsif (length($pendingEntry) >= 128) {
+            push(@{$ref}, $entry . '\\');
+            $entry = "";
+        }
+
+        $entry .= $newField;
+    }
+
+    push(@{$ref}, $entry);
+
+}
+
+
+# End #include "includes/utils.pl.inc"
+##########################################
+
+##########################################
+# Start #include "includes/time.pl.inc"
+
+#included from time.pl.inc
+
+use POSIX qw(strftime);
+use Time::HiRes qw(gettimeofday);
+use Time::Local;
+
+sub tsToEpoch
+{
+    my $timestamp = shift;
+    my @timeArray = split(/[-T:Z.]/,$timestamp);
+    my $milliseconds = $timeArray[6] || '000';
+    splice @timeArray, 6, 1;
+    $timeArray[1] -= 1;
+    return timegm(reverse(@timeArray)) . $milliseconds;
+}
+
+sub epochToTs
+{
+    my $milliseconds = shift;
+    return strftime('%Y-%m-%dT%H:%M:%S',gmtime(int($milliseconds/1000))).'.'.substr($milliseconds,-3).'Z';
+}
+
+sub timestamp
+{
+    my ($seconds, $microseconds) = gettimeofday();
+    return strftime('%Y-%m-%dT%H:%M:%S',gmtime($seconds)).'.'.sprintf('%03d',$microseconds/1000).'Z';
+}
+
+# End #include "includes/time.pl.inc"
+##########################################
+
+sub error
+{
+    my $message = shift;
+    
+    my %error;
+    
+    $error{timestamp}  = timestamp(), # timestamp() from includes/time.pl.inc
+    $error{scriptName} = $SCRIPT_NAME,
+    $error{scriptArgs} = $SCRIPT_ARGS,
+    $error{error}      = $message,
+
+    my $jsonErr = jsonString(\%error); # jsonString() from includes/utils.pl.inc
+    
+    print "$jsonErr";
+    exit 1;
+}

@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#create by Robert W Anderson 05/05/2015
+
+echo 'we will provide the list of scripts that you can run to look for information in logs'
+echo
+sleep 2
+
+#http://tldp.org/LDP/Bash-Beginners-Guide/html/sect_09_06.html
+#script info from the abovesite
+
+
+#need to figure out how to change the location of the list of files instead of it just using the current working directory, need to have it run from the directory the script is in
+select FILENAME in ls /cygdrive/c/cygwin/home/anderr14/scripts/scriptsForGoals/*;
+do
+     echo "You picked $FILENAME ($REPLY), we will now run script $FILENAME."
+     $FILENAME
+done
+

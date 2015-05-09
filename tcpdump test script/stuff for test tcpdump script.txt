@@ -1,0 +1,68 @@
+server_ifconfig ALL -a
+
+./tcpdumptest server_2 -start if_41 137.69.106.64 -w test -n 5
+
+check_interface $2
+			ret_val=$? = the last output of the last command
+
+
+
+
+The $number variables contain the parts of the string that matched the capturing groups in the pattern for your last regex match if the match was successful.
+
+For example, take the following string:
+
+$text = "the quick brown fox jumps over the lazy dog.";
+After the statement
+
+$text =~ m/ (b.+?) /;
+$1 equals the text "brown".
+
+debug bash script
+http://tldp.org/LDP/Bash-Beginners-Guide/html/sect_02_03.html
+
+bash -x  ./tcpdumptest server_2 -start if_41 137.69.106.64 -w test -n 5
+
+
+
+after chagning netstat to server_ifconfig  we now get down to line 257 I belive where it calls invalid_arg
+
+explains what some of the values do like $2 and $1 or $?
+http://www.comptechdoc.org/os/linux/usersguide/linux_ugshellpro.html
+
+explains the shift command
+http://www.freeos.com/guides/lsst/ch04sec14.html
+
+from script
+fi
+		shift 2
+		;;
+	    "-q" )
+		VERBOSE=0
+		shift 1
+		;;
+
+	    * )
+		invalid_arg ;
+	esac
+    done
+
+cli error
+
+++ /nas/bin/server_ifconfig server_2 -a
+++ /bin/egrep '^if_41'
++ tempvar='if_41 protocol=IP device=fsn0'
++ '[' 0 -eq 0 ']'
++ return 0
++ ret_val=0
++ '[' 0 -eq 0 ']'
++ INTERFACE=if_41
++ shift 2
++ true
++ '[' 5 -eq 0 ']'
++ case $1 in
++ invalid_arg
++ echo 'Error: Invalid argument specified.'
+Error: Invalid argument specified.
++ exit 1
+root@(none) spa:/cores/service>

@@ -1,0 +1,5 @@
+#!/bin/bash
+echo "what command would you like to run"
+read commandToRun
+
+uemcli -d 10.241.252.130 -u Local/admin -p Utahlab12# $commandToRun

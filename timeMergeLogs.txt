@@ -1,0 +1,43 @@
+#!/bin/bash
+echo "********************************************************************************************************"
+echo "********************************************************************************************************"
+echo "********************************************************************************************************"
+echo "                                  Begin timeMergeLogs script"
+echo "********************************************************************************************************"
+echo "********************************************************************************************************"
+echo "********************************************************************************************************"
+echo "The purpose of this script is to use xtriiage to merge logs from spA and spB between a certain time period"
+sleep 6
+echo "This script must be ran from the path where it can access spa and spb logs in this format spx/log/c4_cdxicx_native.log if it can not it will
+fail"
+sleep 6
+echo "example would be between 9/22/14 15:49:00 to 9/22/14 16:45:35"
+echo " format should be date month/day/year and time xx:xx:xx
+sleep 6
+echo "First what day would you like to start at? format month/day/year ex. 9/22/14"
+read startTimeDate
+
+echo "what is the beginning time frame you would like to look at? format xx:xx:xx ex. 16:45:35"
+read startTime
+
+echo "What day would you like to end at? format month/day/year ex. 9/22/14"
+read endTimeDate
+
+echo "what is the ending time frame you would like to look at? format xx:xx:xx ex. 16:45:35"
+read endTime
+
+echo 'we have "startTimeDate startTime-endTimeDate endTime"'
+
+echo 'we will now merge spa and spb spx/log/c4_cdxicx_native.log, spx/log/start_c4.log, spx/system_logs/local/EMCSystemLogFile.log,
+spx/var/log/messages, and 
+
+mergelogs.exe -o TRiiAGE_TimeLog.txt -r "$startTimeDate 
+$startTime-$endTimeDate $endTime" spa/log/c4_cdxic2_native.log
+spa/log/c4_cdxic3_native.log spb/l$
+
+
+echo
+echo
+echo " okay logs have been merged and the output is saved under the file TRiiAGE_TimeLog.txt
+echo
+echo "complete"

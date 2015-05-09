@@ -1,0 +1,36 @@
+#!/bin/bash
+echo
+echo "searching for reboots from logs"
+echo
+
+echo " searching times that our services were starting up"
+echo
+echo " also saving info in reboots.txt"
+echo " looking in sp*/var/log/messages, not you can go look at older message files if nothing is foudn in the most recent file, it just made it take alot longer searching all message files."
+echo
+sleep 2
+#originally had it check all messages* but that took way to long, so just checking the most recent file
+zgrep 'syslog-ng s' sp*/var/log/messages | less
+zgrep 'syslog-ng s' sp*/var/log/messages >> ./reboots.txt
+echo 
+echo
+echo "now checking for the server_uptime, only on vnxe1 series"
+echo 
+echo "checking sp*/svc_scripts/svc_networkcheck_--info.txt"
+echo 
+sleep 5
+cat sp*/svc_scripts/svc_networkcheck_--info.txt | grep -A 5 "server_uptime ALL" | less
+cat sp*/svc_scripts/svc_networkcheck_--info.txt | grep -A 5 "server_uptime ALL" >> ./reboots.txt
+echo
+
+echo
+echo "We can also verified when the logs were gathered so we can compare the server_uptime to how long since the logs were gathered to see when the services were starting back up"
+echo
+echo "checking sp*/dc_logs/dc_lastrun_log_sp*.tx"
+echo
+sleep 5
+grep "Time start" sp*/dc_logs/dc_lastrun_log_sp*.txt | less 
+grep "Time start" sp*/dc_logs/dc_lastrun_log_sp*.txt >> ./reboots.txt
+echo
+
+

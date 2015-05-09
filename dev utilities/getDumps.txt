@@ -1,0 +1,492 @@
+#!/bin/bash
+
+#set -e
+#set -x
+
+#
+# Log usage.
+ulog $$ $0 $@ > /dev/null 2>&1 &
+
+#The -n is needed in getcores and functions it calls, because getcores uses a 
+#read loop.
+#without the -n ssh reads from standard input, therefore it eats up the 
+#remaining lines in the read loop and it exits too early
+SSH_OPT='-n -o ConnectTimeout=8 -o ServerAliveInterval=8 -o ServerAliveCountMax=1'
+SCP_OPT='-o ConnectTimeout=8 -o ServerAliveInterval=8 -o ServerAliveCountMax=1 -r'
+
+VERSION='$Revision$ '
+# SVN automatically updates this string.
+# Log entries for revisions are available via "svn log khbacktraces.pl"
+
+usage_string="    ${0##*/} <BC-name>|<SP-IP> [-f filter] [-k] [-l]  [-n]
+    ${0##*/} -version
+    ${0##*/} -help
+"
+
+usage(){
+    #TODO add version if SVN works as it is supposed to with scripts
+    # here and in manpage
+    echo "Usage:"
+    echo "$usage_string"
+}
+
+manpage() {
+    echo "
+NAME
+       ${0##*/} - pull dumps and DC from <BC-name> into current directory
+
+SYNOPSIS
+$usage_string
+
+DESCRIPTION
+       If no data collect is found, one will be collected for you.
+
+       Once a dump or data collect is downloaded, checksums are verified. If 
+       checksums are OK, the dump or data collect will be removed from the 
+       system, and a .dwn file with information on where the files were 
+       downloaded will be left in its place. 
+
+
+       -f         Filter by any string to limit the dump - such as date
+                  stamp on the dump file, or container name, like safe
+
+       -h         Show this help
+
+
+       -k         Keep a copy of the dumps on the system after
+                  download. NOTE: Because we do not want to lose
+                  valuable support materials, if you run this command
+                  in a directory other than an AR Support Directory,
+                  getDumps automatically defaults to this option.
+
+       -l         List the files that will be downloaded - do not download
+
+       -n         Do not run a data collect - even if none is found
+
+       -version   Output version of the script
+
+EXAMPLES
+       Get all dumps, associated binaries, and DC collects from BC-H1095:
+       > getDumps BC-H1095
+
+       Leave copies of dumps and DC collects on BC-H1095 after download:
+       > getDumps BC-H1095 -k
+
+       Get Aug 9th dumps and associated binaries and all DC collects:
+       > getDumps BC-H1095 -f 2013-08-09 
+
+       Get all safe dumps and associated binaries and all DC collects:
+       > getDumps BC-H1095 -f safe 
+
+       Get dumps from single SP via IP
+       > getDumps 10.20.30.40
+
+       See the following URL for a more extensive description and examples.
+       https://teamforge6.usd.lab.emc.com/sf/go/wiki11674#section-YourKHToolKit-GetDumpsPullDumpsFromAnArray
+
+REVISION
+       ${0##*/} version $VERSION
+
+AUTHOR
+       Helga Sonner, Keith Glidewell
+"
+}
+
+parse_args() {
+
+   only_list=0 
+   no_dc=0 #don't do an svc_dc, even if none was downloaded
+   clean=1 #remove dumps by default
+   filter="."
+
+   #Generally we only expect -h, -v or machine name
+   #but other are theoretically valid
+   while getopts f:hklnv OPTION; do
+       case "$OPTION" in
+           f) filter="$OPTARG";;
+           h) manpage; exit 0;;
+           k) clean=0;; #keep dumps on system
+           l) only_list=1; clean=0;;
+           n) no_dc=1;;
+           v) echo "$VERSION"; exit 0;;
+           ?) usage; exit 1;;
+       esac
+   done
+
+   #We stop at first non-option. Should be machine.
+   #Most of the time, we expect machine to $1,and no options parsed above.
+   shift $(( $OPTIND -1 )) 
+   machine=$1
+   shift
+
+   if [ -z "$machine" ]; then
+       usage
+       exit 1
+   fi
+
+   #Now slurp up any remaining options.
+   OPTIND=1
+   while getopts f:hklnv OPTION; do
+       case "$OPTION" in
+           f) filter="$OPTARG";;
+           h) manpage; exit 0;;
+           k) clean=0;; #keep dumps on system
+           l) only_list=1; clean=0;;
+           n) no_dc=1;;
+           v) echo "$VERSION"; exit 0;;
+           ?) usage; exit 1;;
+       esac
+   done
+
+   #At this point, there should be nothing left
+   shift $(( $OPTIND -1 )) 
+   if [ $# -gt 0 ]; then
+       usage
+       exit 1
+   fi
+   
+   if [ $clean -eq 1 ]; then
+       if [[ ${PWD##*USD_dumps} == "$PWD" && ${PWD##*/opt/logs/Automatos/x/execution_logs} == "$PWD" ]]; then
+           #a bit hokey, but both 0 and 2 signify that we will keep files on the VNXe
+           #2 gives you a a nice message later on explaining why we are leaving files
+           clean=2
+       fi
+   fi
+
+   ## Find machine IP addresses
+   Values=`swarm --fields name,spaip,spbip $machine`
+   if [ $? == 0 ] ; then
+       machine=`echo $Values | cut -d, -f 1`;
+       IPA=`echo $Values | cut -d, -f 2`;
+       IPB=`echo $Values | cut -d, -f 3`;
+   else
+       IPA=$machine
+       IPB=""
+       echo "$IPA" | grep -sqE "^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$"
+       [ $? -ne 0 ] && { echo "ERROR - Please select a system in SWARM or use a well-formed IP address."; exit 1; }
+       echo "Assuming $machine is an IP address for a single-SP system not in SWARM"
+   fi
+
+   if [ -z "$IPB" ] ; then
+       IPB="n/a"
+   fi
+
+   DEBUG_LOG="${machine}_dumps.out"
+}
+
+logFind() {
+    local rv=$1
+    local ts
+    ts=`ssh $SSH_OPT root@$IPADDR date +\"%b %d %R\"`
+    echo "------------------------------------------------------------------------------"
+    echo "Time:    $ts"
+    echo "IP:      $IPADDR"
+    echo "Dir:     $d"
+    echo "Pattern: $FILE"
+    echo "rv:      $rv"
+    echo "out: "
+    cat FIND.out 
+    echo "errors: "
+    cat FIND.error
+    echo "output from ls -lR: "
+    ssh $SSH_OPT root@$IPADDR ls -lR $d
+}
+
+getcores() {
+    local IPADDR=$1
+    local FILE=$2
+    local FILTR=$3
+    local CLEAN=$4
+    local rv
+
+    #Looping through each directory independently seems like a lot of ssh traffic.
+    #However, what it gains us is that if a directory is inaccessible, like /EMC/backend/service/data_collection
+    #is during C4 start prior to SAFE being up, we can still get dumps from other directories. 
+    for d in $search_path; do
+        rm -f FIND.error FIND.out 
+        ssh $SSH_OPT root@$IPADDR "find $d -name $FILE" 2> FIND.error > FIND.out
+        rv=$?
+        logFind $rv >> $DEBUG_LOG 2>&1
+        list=`cat FIND.out`
+        rm -f FIND.error FIND.out
+
+        if [ $rv -ne 0 ]; then
+            echo "WARNING: Find failed $d "
+            exit_val=1
+            continue
+        fi
+
+        for i in $list
+        do
+            echo $i | grep -q $FILTR
+            if [ $? -ne 0 ] ; then
+                echo "Skipping ${i##/*/}, per filter $FILTR"
+                continue
+            fi
+
+
+            # see if we already have this file
+            find . | grep -q "${i##/*/}$"
+            if [ $? -eq 0 ] ; then
+                echo "Skipping ${i##/*/}, found local copy"
+                continue
+            fi
+
+
+            if [ $only_list -eq 1 ] ; then
+                echo "$i"
+            else
+                echo "Downloading $i"
+                ssh $SSH_OPT root@$IPADDR  "cd `dirname $i` && find ${i##*/} -type f -exec md5sum '{}' \; " > ${i##*/}.md5 
+                scp $SCP_OPT "root@$1:$i" .
+                if [ $? -ne 0 ]; then
+                    echo "WARNING: Download failed $i"
+                    exit_val=1
+                    return
+                fi
+
+                echo -n "Validating checksums...                                                                  "
+                #This allows user and md5 to look at contents of downloaded directory if
+                #it comes from /cores
+                chmod --recursive 777 ${i##*/}
+                md5sum --status -c ${i##*/}.md5
+                if [ $? -ne 0 ]; then
+                    echo "WARNING: Checksums did not match"
+                    #remove so that subsequent calls to getDumps can redownload 
+                    #this 
+                    rm -rf  ${i##*/} ${i##*/}.md5 
+                    exit_val=1
+                    return
+                fi
+                rm -f ${i##*/}.md5
+                echo "OK"
+                echo 
+            fi
+
+            let found+=1;
+
+            if [ $CLEAN -eq 1 ]; then
+                #If we are removing the dump or dc collect, leave a detour sign
+                #But not more than one...
+                if [ ${i: -4} != ".dwn" ]; then
+                    #if can't remove, don't put down detour sign
+                    ssh $SSH_OPT root@$IPADDR  "rm -rf $i"
+                    if [ $? -eq 0 ]; then
+                        ssh $SSH_OPT root@$IPADDR "cat > $i.dwn <<End-of-detour
+GetDumps has downloaded this file or directory.
+From=$i
+To=`hostname -f`:$PWD
+By=$USER
+End-of-detour
+"
+                    fi
+                fi
+            fi
+    
+        done
+    done
+    return 
+}
+
+# Function calls svc_dc on remote host; names the file "auto_triage"
+function createDC()
+{
+    local ipaddress=$1
+    local out=$1
+
+    echo -n "Running data collection on $ipaddress (be patient; may take several minutes)..."
+    echo "--------------------------------------------------------------------------------" >> $DEBUG_LOG
+    out=`ssh $SSH_OPT root@$ipaddress "svc_dc 2>&1"`
+    if [ $? -ne 0 ]; then
+        echo ".Failed!"
+        echo "WARNING: Data collect failed"
+        echo \
+"Svc_dc: failed
+$out" >> $DEBUG_LOG 
+        return 1
+    fi
+       
+    echo "done"
+    echo "Svc_dc: succeeded" >> $DEBUG_LOG
+    return 0
+}
+
+#because this is called in a piped command, nothing set here will be available
+#after this is called
+displayInfo() {
+    echo ""
+    echo "From:      $machine ($IPA, $IPB)"
+    echo "To:        $PWD"
+
+
+    if [ $filter == "." ]; then
+        echo "Download:  all dumps and data collects"
+    else 
+        echo "Download:  \"$filter\" dumps and all data collects"
+    fi
+
+    echo 
+
+    if [ $only_list -eq 1 ]; then
+        echo "Listing files only. To download, run without the -l option." 
+        return
+    fi
+
+    case $clean in
+       0) echo \
+"A copy of all downloaded files will be left on the VNXe to be collected later."
+          ;;
+       1) echo \
+"These files will be removed from the VNXe after they are downloaded and
+a text file with download information will be left in their place."
+          ;;
+       2) echo \
+"Because this is not an AR Support Materials directory, a copy of all 
+downloaded files will be left on the VNXe to be collected later."
+          ;;
+    esac
+    echo
+}
+
+## Main starts here
+
+parse_args $*
+
+echo \
+"
+GetDumps is designed to be able to run against a system in any state, however, 
+in certain states, it may not be able to find all dumps or data collects. 
+In these cases, it will alert you with WARNINGs.
+
+Common WARNINGs include:
+WARNING: xxx is not responding
+    Most probably the SP is shutting down or booting up. 
+    All of its directories may be unavailable.
+WARNING: Find failed xxx
+    Most probably C4 is starting or stopping or is paused. 
+    The directories shown in the error are unavailable. 
+WARNING: Checksums did not match 
+    Most probably a dump is in process.
+
+In all cases,  re-run when the system is more stable or bring the system into 
+service mode then re-run.
+
+If you believe getDumps has a bug, file an AR under: 
+    Common Tools -> Triage Tools -> Triage Script
+Include this log as well as output from the command.
+
+" > $DEBUG_LOG
+
+displayInfo | tee -a $DEBUG_LOG
+
+exit_val=0
+
+#Store off IPs and search paths (based on whether system is in service mode or 
+#not) for each SP in a temporary file. Run svc_mount if needed.
+TMPFILE=`mktemp /tmp/getdumps.XXX` || exit 1
+echo "Temp File: $TMPFILE" >> $DEBUG_LOG
+for ip in $IPA $IPB; do 
+    if [ "$ip" == "n/a" ] ; then
+        continue;
+    fi
+
+    if [ $only_list -eq 0 ]; then
+        ssh $SSH_OPT root@$ip "logger -t triage GetDumps script run. $USER `hostname -f`:$PWD" >& /dev/null
+    fi
+
+    #If a sim is up after SAFE crash, certain directories in /EMC/backend hang, 
+    #but service does not. As dumps and logs should be in service anyway, search
+    #specifically there to avoid hangs.
+    path="/cores /EMC/backend/service/data_collection"
+
+    #logic to determine if in service mode is roughly stolen from triage script
+    out=`ssh $SSH_OPT root@$ip printenv PS1` 
+    if [ $? -ne 0 ]; then 
+         echo "WARNING: $ip is not responding!"
+         exit_val=1
+         #skip this SP in all subsequent loops
+         continue
+    fi
+    echo $out | grep -q Service
+    if [ $? -eq 0 ]; then 
+        if [ $clean -eq 1 ]; then
+            #service mode -- if svc_mount has been called before this, its OK, it will 
+            #just unmount and remount as write
+            ssh $SSH_OPT root@$ip svc_mount -w >& /dev/null
+        fi
+        path="/mnt/cores /mnt/EMC/backend/service/data_collection"
+    fi
+    echo "$ip $path" >> $TMPFILE
+done
+
+
+echo "--------------------------------------------------------------------------------"
+echo "                                     Dumps                                              " 
+echo "--------------------------------------------------------------------------------"
+found=0
+binaries=0
+while read ip search_path; do
+    echo "Checking $ip $search_path"
+    getcores $ip "*dump*dir*" $filter $clean
+    if [ $found -gt 0 ]; then
+        if [ $binaries -eq 0 ]; then
+             mkdir -p binaries
+             getcores $ip "*binaries.tar.gz" . 0 #never remove binaries!
+             mv *binaries.tar.gz binaries  >& /dev/null
+             #only need to do this once
+             binaries=1
+        fi
+    fi
+done < $TMPFILE 
+
+if [ $found -eq 0 ]; then
+  echo "No new dumps found."
+  echo
+fi
+
+echo "--------------------------------------------------------------------------------"
+echo "                                 Data Collects" 
+echo "--------------------------------------------------------------------------------"
+
+found=0
+while read ip search_path; do
+    echo "Checking $ip $search_path"
+    getcores $ip "*service_data*tar*" . $clean
+done < $TMPFILE
+
+if [ $found -eq 0 ]; then
+    echo "No new data collects found."
+    echo
+fi
+
+if [ $no_dc -eq 0 ]; then
+    #make sure we have an svc_dc, or create one
+    while read ip search_path; do
+        find . | grep -q service_data 
+        if [ $? -eq 0 ] ; then
+            break;
+        fi
+        set -o pipefail
+        createDC $ip
+        if [ $? -eq 0 ]; then
+            echo "Checking $ip $search_path"
+            getcores $ip "*service_data*tar*"  .  $clean
+        else
+            exit_val=1
+        fi
+        set +o pipefail
+    done < $TMPFILE
+fi
+
+rm -f $TMPFILE
+echo "--------------------------------------------------------------------------------" >> $DEBUG_LOG
+if [ $exit_val -ne 0 ]; then
+    echo \
+"--------------------------------------------------------------------------------
+GetDumps encountered WARNINGs. See above. See $DEBUG_LOG for more information.
+--------------------------------------------------------------------------------" 
+    echo "GETDUMPS had WARNINGs" >> $DEBUG_LOG
+else 
+    echo "GETDUMPS SUCCEEDED" >> $DEBUG_LOG
+fi
+exit $exit_val

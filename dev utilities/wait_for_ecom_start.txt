@@ -1,0 +1,53 @@
+#!/bin/bash -e
+
+script_dir=$(dirname $0) && cd ${script_dir} && script_dir=${PWD}
+
+
+help()
+{
+    echo 
+    echo "PURPOSE: Wait for ECOM to be started so that testing can begin."
+    echo "USAGE: $0 [sp_ip_list]"
+    echo "  sp_ip_list: Comma-separated list of SP IP's."
+    echo 
+    echo "EXAMPLE: $0 \"10.244.218.190,10.244.218.190\""
+    echo    
+}
+
+sp_ip_list=${1:-undefined}
+
+if [ $sp_ip_list = undefined ]; then
+    help
+    exit 1
+fi
+
+getEcomSpIp()
+{
+    ${script_dir}/find_ecom_sp_ip "${sp_ip_list}"
+}
+
+getLastPostStartupMessage()
+{
+    if ! ecom_sp_ip=$(getEcomSpIp); then 
+        echo "ECOM not found"
+        exit 0
+    fi
+    ssh_dest="root@$ecom_sp_ip"
+    ssh $ssh_dest 'sed -n -e "/CIMOM: Shutdown/p" -e "/CIMOM: PostStartup/p" /EMC/CEM/log/cimomlog.txt' | tail -n 1 | awk '{print $6}'
+}
+
+interval=30
+seconds=0
+max=600
+while [ "$(getLastPostStartupMessage)" != "Leaving." ] && [ $seconds -lt $max ]
+do
+    sleep $interval
+    let seconds=seconds+$interval
+done
+
+if [ $seconds -gt $max ]; then
+    echo "ECOM not up after $max seconds.  Giving up."
+    exit 1
+fi
+
+echo ECOM is UP.

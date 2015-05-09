@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo "Hi $USER, what directory do you want to go to?"
+read directory
+echo
+echo
+echo "What file do you want to extract?"
+read file
+echo
+echo
+tar -xvf $file 
+
+echo
+echo "File has been extraceted as $file"
+echo
+echo "exiting script"
+

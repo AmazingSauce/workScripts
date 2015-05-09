@@ -1,0 +1,85 @@
+#!/bin/bash
+declare debug
+declare stop_when_found=1
+declare parent_only=1
+declare quiet
+declare -r snapshot_pattern='-(201[0-9]{9}|EA[0-9]*|mcs.[0-9]*)$'
+
+function die()
+{
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 255
+}
+
+function usage()
+{
+    die "findAR [-c|--continue] [-q|--quiet] [-a|--all] <issue> [<first stream>]"
+}
+
+function debug()
+{
+    [[ $debug ]] && printf 'DEBUG: %s\n' "$*"
+}
+
+declare getopt
+getopt=$(getopt --name "$(basename "$0")" --options "Dxcqa" --longoptions "debug,trace,continue,quiet,all" -- "$@") || usage
+eval set -- "$getopt"
+while :; do
+    case "$1" in
+        -D|--debug) debug=1; shift;;
+        -x|--trace) set -x; shift;;
+        -c|--continue) stop_when_found=0; shift;;
+        -q|--quiet) quiet=1; shift;;
+        -a|--all) parent_only=0; shift;;
+        --) shift; break ;;
+        *) die "Unhandled getopt output ($1)" ;;
+    esac
+done
+
+declare -r -i issue=${1#AR}
+declare -r first_stream="${2:-upc}"
+
+[[ $issue -gt 0 ]] || usage
+[[ $# -le 2 ]] || usage
+
+type -p xml &>/dev/null || die "Failed to find xml utility; perhaps try running: sudo zypper install xmlstarlet"
+
+declare -a found
+declare -a streams=("$first_stream")
+declare -i level=0
+while [[ ${#streams[@]} -gt 0 ]]; do
+    declare -a children
+    declare stream
+
+    [[ $quiet ]] || printf 'Checking %d stream(s) at a depth of %d stream(s) away from %s for AR%d ...' "${#streams[@]}" "$level" "$first_stream" "$issue"
+    [[ $debug ]] && printf '\n'
+    children=()
+    for stream in "${streams[@]}"; do
+	debug "Checking $stream"
+	declare -i found_here=0
+	if ! grep -Eq -- "$snapshot_pattern" <<< "$stream"; then
+	    accurev issuelist -3 -I "AR$issue" -s "$stream" | grep -q "Issue" && found_here=1
+	fi
+	[[ $found_here -gt 0 ]] && found=("${found[@]}" "$stream")
+	[[ $found_here -eq 0 || $parent_only -eq 0 ]] && children=("${children[@]}" $(accurev show -1 -s "$stream" -fx streams | xml sel -t -m "//stream[@type='normal']" -v @name -n | grep -Fxv "$stream" | grep -v -e '-usr$'))
+	[[ $quiet || $debug ]] || printf .
+    done
+    [[ $quiet || $debug ]] || printf '\n'
+
+    [[ $stop_when_found -gt 0 && ${#found[@]} -gt 0 ]] && break
+
+    streams=("${children[@]}")
+    level=$((level + 1))
+done
+
+if [[ ${#found[@]} -gt 0 ]]; then
+    if [[ $quiet ]]; then
+	printf '%s\n' "${found[@]}"
+    else
+	printf 'AR%d found in the following streams:\n' "$issue"
+	printf '  %s\n' "${found[@]}"
+    fi
+elif [[ ! $quiet ]]; then
+    printf 'AR%d not found in any streams\n' "$issue"
+fi
+exit 0

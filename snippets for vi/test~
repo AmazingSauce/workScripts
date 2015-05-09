@@ -1,0 +1,14 @@
+#!/bin/bash
+#Tue, Nov 25, 2014  4:41:04 PM
+# you can input the date with :r! date "+\%x\%X" or :r! date
+
+
+
+if [[ $USER = "anderr14" ]]
+	then 
+		echo "hello"
+
+	else
+		echo "goodbye"
+
+fi

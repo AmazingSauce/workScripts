@@ -1,0 +1,706 @@
+#!/bin/sh
+#set -x
+
+# log usage
+ulog $$ $0 $@ > /dev/null 2>&1 &
+
+VERSION='$Revision$ ' # the leading "\$" and trailing "$ " help logger
+VNXE_SSH_KEY="/c4shares/Public/ssh/id_rsa.root"
+SSH_OPT="-o ServerAliveInterval=10 -o ServerAliveCountMax=1 -o ConnectTimeout=5 -l root"
+SCP_OPT="-o ServerAliveInterval=10 -o ServerAliveCountMax=1 -o ConnectTimeout=10 -o User=root -i $VNXE_SSH_KEY "
+WARNING_RC=1 #failures of getDumps are considered warnings. Automated tests will retry these.  
+ERROR_RC=2   #failures of svc_dc are considered errors. Automated tests will create an AR against svc_dc.
+
+show_version() {
+    echo $VERSION
+    exit 0
+}
+
+# Display usage and exit with an error
+show_usage() {
+echo "
+Usage:
+${0##*/} <BC-name>
+${0##*/} <BC-name> [ --upload ( --AR <AR-Number> | --path <custom_path> ) [ --no_collect ] ]
+${0##*/} --version
+${0##*/} --help
+"
+exit 1
+}
+
+# Display help and exit with no error
+show_help() {
+    #TODO add a -help option that displays this. 
+    #TODO make --AR and --path optional. Without them, script will work like 
+    #--getDumps option
+    echo "
+NAME
+       ${0##*/} - display and collect triage information
+
+SYNOPSIS
+       ${0##*/} <BC-name> 
+       ${0##*/} <BC-name> [ --upload ( --AR <AR-Number> | --path <custom_path> ) [ --no_collect ] ]
+       ${0##*/} --version
+       ${0##*/} --help
+
+DESCRIPTION
+       Displays triage information about <BC_NAME> and saves that information 
+       to <BC-name>.out
+
+       --upload 
+              Also runs a data collect and gets dump materials. Puts everything 
+              in one of two places:
+              --AR <AR-Number> 
+                      <AR-Number>'s support materials directory
+              --path <custom_path>
+                      <custom_path>
+
+              Upload Options:
+              --no_collect 
+                      Do not run a data collect before putting dump materials
+                      in specified location.
+
+        --version    Output the version of this script
+
+        --help       Output this help message
+
+EXAMPLE
+       Collect triage information about 1.2.3.4 and run a data collect on it. 
+       Put the triage info, data collect, and all dump materials in AR 999999's 
+       support materials directory.
+       ${0##*/} 1.2.3.4 --upload --AR 999999
+
+       Collect triage information and dump materials from 1.2.3.4 and put them 
+       in /my/own/place. Do not run a data collect.
+       ${0##*/} 1.2.3.4 --upload --path /my/own/place --no_collect
+
+       See the following URL for a more extensive description and examples.
+       https://teamforge6.usd.lab.emc.com/sf/go/wiki11674#section-YourKHToolKit-TriageCheckForTheObviousThingsWrongWithAMachine
+
+FILES
+       <BC-name>.out
+
+REVISION
+       ${0##*/} version $VERSION
+
+AUTHOR
+       Helga Sonner, Keith Glidewell, Ben Hulbert
+
+EXIT STATUS
+       Returns 0 on success. 
+       Returns 1 on warnings. 
+       Returns 2 on errors. 
+
+SEE ALSO
+       getDumps
+
+NOTES
+       Run getDumps -h for rules about dump material collection, including, 
+       but not limited to, how to collect support materials in a directory 
+       other than an AR support materials directory. 
+"
+    exit 0
+}
+
+# Set global variables
+parse_args()
+{
+    MACH=''
+    BCA=''
+    BCAWARNING=''
+    BCB=''
+    BCBWARNING=''
+    UPLOAD=0
+    AR_PATH=''
+    LOC_PATH=''
+    # used to toggle --upload path; gives the user ability to just transfer current
+    # materials on system; don't attempt another collect; default is "false"
+    #
+    NO_COLLECT=0
+    GD_OPT=''
+ 
+
+    local BCN=''
+
+    [ $# -lt 1 ] && show_usage
+    echo "$*" | grep -w "\-help" > /dev/null
+    [ $? -eq 0 ] && show_help
+    echo "$*" | grep -w "\-version" > /dev/null
+    [ $? -eq 0 ] && show_version
+
+    # translate IP address to name
+    MACH=$1
+    BCN=`swarm --fields name $MACH`
+    if [ $? == 0 ] ; then
+        BCA=`swarm --fields spaip $MACH`
+        [ $? -ne 0 ] && show_usage
+        BCB=`swarm --fields spbip $MACH`
+        [ $? -ne 0 ] && show_usage
+    else
+        echo BC $MACH not found - assuming IP address
+        BCA=$MACH
+        BCB=""
+        echo "$BCA" | grep -sqE "^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$"
+        [ $? -ne 0 ] && show_usage
+    fi
+
+    if [ "$2" == "--getdumps" -o "$2" == "-getdumps" ] ; then
+        UPLOAD=1
+        LOC_PATH='.'
+        NO_COLLECT=1
+        if [ -n "$3" ]; then
+            GD_OPT="-f $3"
+        fi
+    elif [ "$2" == "--upload" -o "$2" == "-upload" ]; then
+        UPLOAD=1
+        orig_args="$*"
+        ARG_HOLDER="$orig_args"
+        #The -n means no data collect. We do this because triage already
+        #collects the DC if requested. If for some reason svc_dc fails, 
+        #triage does a retry. So if that fails, we don't want to possibly
+        #retry again in getDumps, and if that fails retry getDumps. Especially 
+        #when called from automated scripts, which themselves will do a retry of 
+        #all of triage.
+        #Note that for the --getdumps argument above, we don't use -n ,
+        #that's to preserve the old behavior for that argument, if anyone 
+        #is still relying on it. 
+        GD_OPT='-n'
+
+        # use getopt to indicate if arguments are properly formatted
+        getopt -Q -a -l upload,AR:,path:,no_collect :uA:p:n $orig_args
+        [ $? -ne 0 ] && show_usage
+
+        set -- $orig_args
+
+        while (( $# ));
+        do
+            case $1 in
+            -AR|--AR|-A) 
+                AR_PATH=$2
+                shift   
+                ;;
+            -path|--path|-p) 
+                LOC_PATH=$2
+                shift   
+                ;;
+            -no_collect|--no_collect|-n) 
+                NO_COLLECT=1
+                ;;
+            esac
+
+            shift
+        done
+
+        set -- $orig_args
+
+        # toggle actions depending on where they want the materials to be placed
+        if [ -z "$AR_PATH" ]; then
+            [ -z "$LOC_PATH" ] && show_usage
+        else
+            # this sets LOC_PATH
+            calculate_triage_path $AR_PATH
+            if [ $? -ne 0 ]; then
+                echo "Could not find path to the AR directory; unable to upload materials." 
+                echo "Please perform manually! Exiting..."
+                exit 1
+            fi
+        fi
+    elif [ -n "$2" ]; then
+        echo "Invalid parameter: $2"
+        show_usage
+    else
+        #all is good
+        /bin/true
+    fi
+
+    #Now that we have filled in BCA and BCB variables, set up warning messages
+    #for later in case we need them. We can't do this at top of file, 
+    #because at that point in time, BCA and BCB are blank. 
+    BCAWARNING="WARNING: Cannot ping SPA $BCA - skipping some checks"
+    BCBWARNING="WARNING: Cannot ping SPB $BCB - skipping some checks"
+}
+
+#upload materials to specified directory 
+#return values:
+#1 = failed
+#0 = success
+upload_materials()
+{
+    local dc_rv=0
+    local gd_rv=0
+    echo
+    echo "====================================================================================="  | tee -a $MACH.out
+    echo "Uploading materials to $LOC_PATH"
+    echo
+
+    if [ -f "$MACH.out" ]; then
+        if [ "$MACH.out" -ef $LOC_PATH/"$MACH.out" ]; then
+            #don't copy file over itself, you'll just get a nasty error.
+            /bin/true
+        else 
+            cp "$MACH.out" $LOC_PATH
+        fi
+    fi
+
+    # user may have told us not to attempt to grab anything
+    if [ $NO_COLLECT -eq 0 ]; then
+        svc_data_collect 
+        dc_rv=$?
+    fi
+
+    # getDumps will pick up the svc_dc data we just generated (if -no_collect not set)
+    cmdDir=`dirname $0`
+    sleep 1
+    {
+        set -o pipefail
+        for i in `seq 1 2`; do 
+            if [ $gd_rv -ne 0 ]; then
+	        echo -n "Will retry in one minute."
+                for i in `seq 1 12`; do 
+                    echo -n . 
+                    sleep 5 
+                done
+                echo
+            fi
+            echo "Uploading dumps now with getDumps."
+            cd $LOC_PATH
+            $cmdDir/getDumps $BCA $GD_OPT | tee -a $MACH.out
+            gd_rv=$?
+            if [ $gd_rv -eq 0 ]; then
+	        echo "GetDumps succeeded."
+                break
+            fi
+            echo
+	    echo "GetDumps had warnings."
+        done
+        set +o pipefail
+    }
+    [ $dc_rv -ne 0 ] && return $ERROR_RC
+    [ $gd_rv -ne 0 ] && return $WARNING_RC 
+    return 0
+}
+
+# Issues an scp call to host (pull request)
+function scp_cmd()
+{
+    local src="$1"
+    local host_location="$2"
+    eval scp $SCP_OPT "$src" "$host_location"
+    return $?
+}
+
+# Determines path to AR materials directory
+function calculate_triage_path() 
+{
+    local AR="$1" 
+    local find_cmd=""
+
+    find_cmd=`whereisAR $AR`
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    #Get rid of unecessary newlines
+    LOC_PATH="`echo $find_cmd | tr -d '\n'`"
+    
+    [ -z "$LOC_PATH" ] && return 1
+    return 0
+}
+
+# Runs a series of commands and displays output to user
+function triage_sp ()
+{
+    local BC=$1
+    #If the system is up, mark the fact that triage was run in /var/log/messages
+    #If it is in service mode, do not worry about it, as it's a different /var/log/messages
+    #Timeline program will display this info to allow triagers to know where to
+    #start triage. 
+    ssh ${BC} $SSH_OPT "logger -t triage \"Triage script run (\\$VERSION). ${USER}\"" 
+
+    # check if specl sfi mode is on - report error if so, or silently proceed
+    if [ `ssh ${BC} $SSH_OPT 'sptool -f | grep -qi sim'` ];
+    then
+        # Don't report an error if we are on sim because we always use sfi mode
+        ssh ${BC} $SSH_OPT 'speclcli -getsfi  | grep -q Enabled  && echo "ERROR:  specl sfi simulation is ON"'
+    fi
+    
+    echo "version"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'cat /.version'
+    echo
+    
+    echo "Hardware Information"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'echo -n "Model:    "; sptool -getmodel; echo -n "Platform: "; sptool -p; echo -n "Memory:   " ; dmidecode -t memory | grep "^.Size.*MB"  | cut -d" " -f2 | paste -sd+ - | bc'
+    echo
+
+    echo "boot_control state"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'boot_control.sh list'
+    echo
+    echo "module_control state"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'module_control.sh list'
+    echo
+    echo "date"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'date'
+    echo
+    echo "start_c4.log"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'zgrep -e "Framework: start" -e "set system_complete" /EMC/C4Core/log/start_c4.log* 2> /dev/null' 
+
+
+    #ssh ${BC} $SSH_OPT 'read -t10 < <(ls /EMC/backend/service/* 2>/dev/null)' 
+    ssh ${BC} $SSH_OPT 'read -t10 < <(ls /EMC/backend/service/* 2>&1)' 
+    if [ $? != 0 ] ; then
+        echo
+        echo "/EMC/backend/service/"
+        echo "================"
+        echo "Hanging trying to access /EMC/backend/service/*."
+        echo "Skipping Disk EQ check, cores check, timeline and backtraces."
+        echo
+        return
+    fi
+
+
+    ### Check Disk EQ
+    ssh ${BC} $SSH_OPT 'zgrep  -q "Drive firmware upgrade required.  Enhanced queuing not supported" /EMC/C4Core/log/c4_safe_ktrace.log* 2>/dev/null'
+    if [ $? == 0 ] ; then
+        echo "ERROR DUE TO DISKS NOT SUPPORTING ENHANCED QUEUING!!!!  See wiki13169."
+        echo "ERROR DUE TO DISKS NOT SUPPORTING ENHANCED QUEUING!!!!  See wiki13169."
+        echo "ERROR DUE TO DISKS NOT SUPPORTING ENHANCED QUEUING!!!!  See wiki13169."
+    fi
+    echo
+    echo "cores"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'ls -l /EMC/backend/service/data_collection/cores 2>/dev/null' 
+    ssh ${BC} $SSH_OPT 'ls -l /cores/*tgz 2>/dev/null'
+    echo
+    echo "/EMC/CEM/log"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'zgrep -e "Assertion" /EMC/CEM/log/* 2>/dev/null'
+
+    needBTs=0
+    cmdDir=`dirname $0`
+    if [ -e "$cmdDir/khbacktraces.pl" -a  -e "$cmdDir/khepoch2utc.pl" ]; then
+        echo
+        echo "Backtraces"
+        echo "================"
+        scp_cmd $cmdDir/khbacktraces.pl "${BC}:/var/tmp/" 
+        if [ $? -eq 0 ]; then 
+            scp_cmd $cmdDir/khepoch2utc.pl "${BC}:/var/tmp/" 
+            if [ $? -eq 0 ]; then 
+                 needBTs=1
+                 ssh ${BC} $SSH_OPT '/var/tmp/khbacktraces.pl'
+            fi
+        fi
+    fi
+    if [ -e "$cmdDir/khtimeline.pl" ]; then
+        echo
+        echo "Timeline"
+        echo "================"
+        scp_cmd $cmdDir/khtimeline.pl "${BC}:/var/tmp/" 
+        if [ $? -eq 0 ]; then 
+          ssh ${BC} $SSH_OPT '/var/tmp/khtimeline.pl'
+        fi
+    fi
+
+    if [ $needBTs -eq 0 ]; then
+        echo
+        echo "/EMC/C4Core/log"
+        echo "================"
+        ssh ${BC} $SSH_OPT 'zgrep -e "panic backtrace" -e "hard assert failed" -e "hard assert backtrace" -e "panic requested" /EMC/C4Core/log/* 2>/dev/null'
+        echo
+        echo "/EMC/CEM/log/backtrace.log"
+        echo "================"
+        ssh ${BC} $SSH_OPT 'cat /EMC/CEM/log/backtrace.log 2>/dev/null'
+    fi
+
+    return
+}
+
+# Runs a series of commands and displays to user (service mode)
+function triage_sp_service_mode()
+{
+  local BC=$1
+
+    echo "svc_diag"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'svc_diag'
+    echo
+    echo "date"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'date'
+    echo
+    ssh ${BC} $SSH_OPT 'svc_mount -s -w'
+    echo 
+    echo "Hardware Information"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'echo -n "Model:    "; sptool -getmodel; echo -n "Platform: "; sptool -p; echo -n "Memory:   " ; dmidecode -t memory | grep "^.Size.*MB"  | cut -d" " -f2 | paste -sd+ - | bc'
+    echo
+    echo "start_c4.log"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'zgrep -e "Framework: start" -e "set system_complete" /mnt/ssdroot/EMC/C4Core/log/start_c4.log* 2>/dev/null'
+
+
+    #ssh ${BC} $SSH_OPT 'read -t10 < <(ls /mnt/ssdroot/EMC/C4Core/log/* 2>/dev/null)' 
+    ssh ${BC} $SSH_OPT 'read -t10 < <(ls /mnt/ssdroot/EMC/C4Core/log/* 2>&1)' 
+    if [ $? != 0 ] ; then
+        echo
+        echo "/mnt/ssdroot/EMC/C4Core/log/c4_safe_ktrace.log*"
+        echo "================"
+        echo "Hanging trying to access /mnt/ssdroot/EMC/C4Core/log/*."
+        echo "Skipping Disk EQ check, cores check, timeline and backtraces."
+        echo
+        return
+    fi
+
+    ### Check Disk EQ
+    ssh ${BC} $SSH_OPT 'zgrep  -q "Drive firmware upgrade required.  Enhanced queuing not supported" /mnt/ssdroot/EMC/C4Core/log/c4_safe_ktrace.log* 2>/dev/null'
+    if [ $? == 0 ] ; then
+        echo "ERROR DUE TO DISKS NOT SUPPORTING ENHANCED QUEUING!!!!  See wiki13169."
+        echo "ERROR DUE TO DISKS NOT SUPPORTING ENHANCED QUEUING!!!!  See wiki13169."
+        echo "ERROR DUE TO DISKS NOT SUPPORTING ENHANCED QUEUING!!!!  See wiki13169."
+    fi
+    echo
+    echo "cores"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'ls /mnt/ssdroot/EMC/backend/service/data_collection/cores 2>/dev/null'
+    ssh ${BC} $SSH_OPT 'ls /mnt/cores 2>/dev/null'
+    ssh ${BC} $SSH_OPT 'ls /mnt/cores/processed 2>/dev/null'
+    echo
+    echo "/EMC/CEM/log"
+    echo "================"
+    ssh ${BC} $SSH_OPT 'zgrep -e "Assertion" /mnt/ssdroot/EMC/CEM/log/* 2>/dev/null'
+
+    needBTs=0
+    cmdDir=`dirname $0`
+    if [ -e "$cmdDir/khbacktraces.pl" -a  -e "$cmdDir/khepoch2utc.pl" ]; then
+        echo
+        echo "Backtraces"
+        echo "================"
+        scp_cmd $cmdDir/khbacktraces.pl "${BC}:/var/tmp/" 
+        if [ $? -eq 0 ]; then 
+            scp_cmd $cmdDir/khepoch2utc.pl "${BC}:/var/tmp/" 
+            if [ $? -eq 0 ]; then 
+                 needBTs=1
+                 ssh ${BC} $SSH_OPT '/var/tmp/khbacktraces.pl'
+            fi
+        fi
+    fi
+    if [ -e "$cmdDir/khtimeline.pl" ]; then
+        echo
+        echo "Timeline"
+        echo "================"
+        scp_cmd $cmdDir/khtimeline.pl "${BC}:/var/tmp/" 
+        if [ $? -eq 0 ]; then 
+          ssh ${BC} $SSH_OPT '/var/tmp/khtimeline.pl'
+        fi
+    fi
+
+    if [ $needBTs -eq 0 ]; then
+        echo
+        echo "backtrace in /mnt/ssdroot/EMC/C4Core/log"
+        echo "================"
+        ssh ${BC} $SSH_OPT 'zgrep -e "panic backtrace" -e "hard assert failed" -e "hard assert backtrace" -e "panic requested" /mnt/ssdroot/EMC/C4Core/log/* 2>/dev/null'
+    fi
+
+    return
+}
+
+# Looks for data in console logs
+function check_console_logs()
+{
+  local BC=$1
+    echo
+    echo "Look for panics in console log"
+    echo "================"
+    foo=`swarm --log ${BC} --limit 0`
+    echo "$foo" | grep -a -B20 -A28 "knlGS:"
+
+    echo
+    echo "More panic info from console log"
+    echo "================"
+    #Pick up the panics shown above as well as OOM panics. The above will not find OOM panics. 
+    #Pid gives us the culprit if the panic was induced or something was chomping up too much memory
+    #Also show the dumpfile with a timestamp. That helps figure out which dump 
+    #the traceback is associated with. But there's a catch - the time stamp is 
+    #slightly earlier than what the directory for the kernel dump is ultimately 
+    #named. Hopefully this won't caused confusion.
+    #covers: Kernel panic - not syncing: EMC NMI received - Watchdog timeout as well as out of memory and forced crash
+    echo "$foo" | grep -e "The dumpfile is saved to" -e "Kernel panic - not syncing:" -e "SysRq : Trigger a crash" -e "Pid:" 
+    echo
+    echo "Look for POST messages in console log"
+    echo "================"
+    echo "$foo" | awk '/Extended POST Messages/,/Extended POST End/'
+}
+
+# Main function for triage, calls helper functions
+# Note: Because this function is called in a piped command it runs in a subshell
+# It can use global variables but changes it makes to them disappear once done
+function triage_rig()
+{
+echo "\
+Command used: $INVOCATION
+User:         $USER
+Location:     `hostname -f`:`pwd`
+Revision:     $VERSION
+Local date:   `date`
+
+"
+  echo Triage $MACH SPA $BCA
+
+
+  ping -c 1 $BCA > /dev/null 2>&1
+  if [ $? -ne 0 ] ; then
+    echo $BCAWARNING
+  else
+   if [ -z "$(echo "$(swarmssh ${BCA} $SSH_OPT 'printenv PS1')" | grep Service)" ] ; then
+      triage_sp $BCA
+   else
+      echo "service mode"
+      triage_sp_service_mode $BCA
+   fi
+  fi
+  check_console_logs $BCA
+
+   if [ "$BCB" != "" ] ; then 
+      echo =====================================================================================
+      echo Triage $MACH SPB $BCB
+      ping -c 1 $BCB > /dev/null 2>&1
+      if [ $? -ne 0 ] ; then
+        echo $BCBWARNING
+      else
+       OUTPUT="$(echo "$(swarmssh ${BCB} $SSH_OPT 'printenv PS1')")"
+
+       if [ -z "${OUTPUT}" ] ; then
+	  echo
+	  echo "** SPB not accessible - Expected for Sim or Single SP systems **" 
+	  echo
+       elif [ -z "$(echo "${OUTPUT}" | grep Service)" ] ; then
+	  triage_sp $BCB
+       else
+	  echo "service mode"
+          triage_sp_service_mode $BCB
+       fi 
+       check_console_logs $BCB
+     fi
+   fi
+}
+
+
+#this global is used by run_svc_dc
+tries=0
+run_svc_dc() {
+    local ip=$1 
+    local opts=$2 
+    local out
+    local rv=0
+    local re="This is single SP collection beacuse peer is unreachable"
+
+    let tries+=1;
+    echo -n "Running data collection on $ip (be patient; may take several minutes)..." 
+    out=`ssh $ip $SSH_OPT svc_dc $opts 2>&1`
+    rv=$?
+    if [[ $out =~ $re ]]; then
+        #We see this message on:
+        #1) On a dual BC when both SPs are paused before C4 --retry on each SP will help. 
+        #2) A Sim -- retry won't help
+        #3) Might see this on a BC where one SP is not pingable -- retry won't help
+        #for cases 2 & 3 isBCBup will be zero 
+        if [ $isBCBup -eq 1 ]; then
+            rv=1
+        fi
+    fi
+    if [ $rv -ne 0 ]; then
+        echo "failed"
+        echo \
+"
+Svc_dc #$tries: failed
+$out" >>  $MACH.out
+    else
+        echo "done"
+    fi
+    return $rv
+}
+
+# Function calls svc_dc on remote host; names the file "auto_triage"
+# return values
+# 1 = failed
+# 0 = success
+# If all attempts fail, use the following files and directories to triage 
+# EMC/backend/service/data_collection/DChistory.txt
+# EMC/backend/service/data_collection/cores/DChistory.txt
+# /mnt/ssdroot/EMC/Platform/tmp
+function svc_data_collect()
+{
+    #1==yes, 0==no for these locals 
+    local gotBCAlogs=0
+    local gotBCBlogs=0
+    #these are used in a subroutine so are global
+    isBCAup=0
+    isBCBup=0
+ 
+    if [ -n "$BCA" ]; then 
+        grep -q "$BCAWARNING" $MACH.out 
+        [ $? -ne 0 ] && isBCAup=1
+    fi
+
+    if [ -n "$BCB" ]; then 
+         grep -q "$BCBWARNING" $MACH.out 
+         [ $? -ne 0 ] && isBCBup=1
+    fi
+
+    run_svc_dc $BCA "-n auto_triage_ 2" 
+    if [ $? -ne 0 ]; then
+	echo "Retrying..."
+        if [ $isBCBup -eq 1 ]; then
+	    echo "Retry will collect logs from each SP individually, starting with SPB."
+            run_svc_dc $BCB "--current-sp -n auto_triage_ 2" 
+            if [ $? -eq 0 ]; then
+                gotBCBlogs=1
+            fi
+        else
+            echo "Svc_dc: skipping SPB retry" >> $MACH.out
+        fi
+        if [ $isBCAup -eq 1 ]; then
+            run_svc_dc $BCA "--current-sp -n auto_triage_ 2" 
+            if [ $? -eq 0 ]; then
+                gotBCAlogs=1
+            fi
+        else
+            echo "Svc_dc: skipping SPA retry" >> $MACH.out
+        fi
+    else
+        gotBCAlogs=1
+        gotBCBlogs=1
+    fi
+
+    #if an SP is up, but we failed to collect its logs, return 1
+    [ $isBCAup -eq 1 ] && [ $gotBCAlogs -eq 0 ] && return 1
+    [ $isBCBup -eq 1 ] && [ $gotBCBlogs -eq 0 ] && return 1
+
+    echo "Svc_dc: succeeded" >> $MACH.out
+    return 0
+}
+
+#
+# Main logic starts here
+#
+
+INVOCATION="$0 $@"
+
+parse_args $*
+triage_rig | tee $MACH.out
+if [ $UPLOAD -eq 1 ] ; then
+    upload_materials
+    exitValue=$?
+    if [ $exitValue -ne 0 ] ; then
+        echo "WARNING: Data collection failed. Wait 10 minutes then re-run triage." | tee -a $MACH.out
+        echo "Exit Status: $exitValue" >> $MACH.out
+        exit $exitValue
+    fi
+fi
+echo "Exit Status: 0" >> $MACH.out
+exit 0

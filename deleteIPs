@@ -1,0 +1,37 @@
+#!/bin/bash  
+  echo "What ip do you want to change?"
+  read whatToChange
+  echo "What do you want to replace it with?"
+  read whatToChangeTo
+  echo
+  echo "okay we are going to search from the current directory for 
+$whatToChangeTo and change it to $whatToChangeToTo"
+  echo
+  
+  echo 
+  
+  echo "do you want to proceed?"
+  echo " enter yes or no"
+  read continue
+  
+  echo "you chose $continue"
+  echo
+
+ if [ "$continue" == "yes" ];
+ then
+  
+  sleep 2
+  echo "starting to make changes"
+
+     
+find ./ type f -exec sed -i 's/$whatToChangeTo/$whatToChangeToTo/g' {} \;
+     
+	
+
+	 
+fi	
+
+echo
+	echo "now searching to see if we find any $whatToChangeTo"
+	grep --color=always -r -i -C 3 $whatToChangeTo * | less -R -i 
+

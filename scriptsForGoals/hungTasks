@@ -1,0 +1,23 @@
+#!/bin/bash
+
+#created by Robert Anderson 03-06-2015
+
+echo "Searching for hung tasks from the logs"
+echo "will be looking at spx/svc_scripts/dart_running_tasks.txt"	
+
+sleep 5
+
+
+listing tasks
+less sp*/svc_scripts/dart_running_tasks.txt
+
+echo "copying output to clipboard"
+
+less sp*/svc_scripts/dart_running_tasks.txt > /dev/clipboard
+echo
+echo
+echo "if nothing was listed in these logs there were no hung tasks at the time of the log capture, this does nt check ./console though"
+
+sleep 2
+
+
